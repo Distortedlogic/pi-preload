@@ -1,10 +1,10 @@
 import { readFile } from "node:fs/promises";
-import { dirname, isAbsolute, join } from "node:path";
-import { formatSize, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { dirname, resolve } from "node:path";
+import { type ExtensionAPI, formatSize } from "@earendil-works/pi-coding-agent";
 import { globby } from "globby";
 import pMap from "p-map";
 import pTimeout from "p-timeout";
-import readYamlFile from "read-yaml-file";
+import { readYamlFile } from "read-yaml-file";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 
@@ -26,20 +26,15 @@ async function collectPreload(cwd: string, signal: AbortSignal) {
 	signal.throwIfAborted();
 	if (!config) return;
 	if (!config.dirent.isFile()) throw new Error("CONTEXT_PRELOAD.yml must be a regular file.");
-	if (config.stats!.size > MAX_FILE_BYTES) {
+	const configBytes = config.stats?.size;
+	if (configBytes === undefined) throw new Error("Could not read CONTEXT_PRELOAD.yml metadata.");
+	if (configBytes > MAX_FILE_BYTES) {
 		throw new Error(`CONTEXT_PRELOAD.yml exceeds ${formatSize(MAX_FILE_BYTES)}.`);
 	}
 
-	const patterns = Value.Decode(GLOB_LIST, await readYamlFile(join(cwd, config.path)));
+	const patterns = Value.Decode(GLOB_LIST, await readYamlFile(resolve(cwd, config.path)));
 	signal.throwIfAborted();
 	if (patterns.length === 0) return;
-
-	for (const pattern of patterns) {
-		const path = pattern.startsWith("!") && !pattern.startsWith("!(") ? pattern.slice(1) : pattern;
-		if (isAbsolute(path) || path.split(/[\\/]/).includes("..")) {
-			throw new Error(`Glob must stay inside cwd: ${pattern}`);
-		}
-	}
 
 	const files = await globby(patterns, {
 		cwd,
@@ -57,12 +52,12 @@ async function collectPreload(cwd: string, signal: AbortSignal) {
 
 	const expectedBytes = files.reduce((total, file) => {
 		if (!file.dirent.isFile()) throw new Error(`Not a regular file: ${file.path}`);
-		if (file.stats!.size > MAX_FILE_BYTES) {
-			throw new Error(
-				`${file.path} is ${formatSize(file.stats!.size)}; the file limit is ${formatSize(MAX_FILE_BYTES)}.`,
-			);
+		const fileBytes = file.stats?.size;
+		if (fileBytes === undefined) throw new Error(`Could not read file metadata: ${file.path}`);
+		if (fileBytes > MAX_FILE_BYTES) {
+			throw new Error(`${file.path} is ${formatSize(fileBytes)}; the file limit is ${formatSize(MAX_FILE_BYTES)}.`);
 		}
-		return total + file.stats!.size;
+		return total + fileBytes;
 	}, 0);
 	if (expectedBytes > MAX_TOTAL_BYTES) {
 		throw new Error(`Selected files total ${formatSize(expectedBytes)}; the limit is ${formatSize(MAX_TOTAL_BYTES)}.`);
@@ -73,7 +68,7 @@ async function collectPreload(cwd: string, signal: AbortSignal) {
 	const blocks = await pMap(
 		files,
 		async (file) => {
-			const bytes = await readFile(join(cwd, file.path), { signal });
+			const bytes = await readFile(resolve(cwd, file.path), { signal });
 			if (bytes.length > MAX_FILE_BYTES) {
 				throw new Error(`${file.path} grew beyond ${formatSize(MAX_FILE_BYTES)}.`);
 			}
@@ -115,11 +110,12 @@ export default function (pi: ExtensionAPI) {
 			});
 			if (!result) return;
 
-			pi.sendMessage(
-				{ customType: CUSTOM_TYPE, content: result.blocks, display: false },
-				{ triggerTurn: false },
-			);
+			pi.sendMessage({ customType: CUSTOM_TYPE, content: result.blocks, display: false }, { triggerTurn: false });
 			ctx.ui.notify(`Context preloaded: ${result.count} files — ${formatSize(result.bytes)}`, "info");
+		} catch (error) {
+			const detail = error instanceof Error ? error.message : String(error);
+			ctx.ui.notify(`Context preload failed: ${detail}`, "error");
+			throw error;
 		} finally {
 			ctx.ui.setStatus(CUSTOM_TYPE, undefined);
 		}
