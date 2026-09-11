@@ -22,14 +22,12 @@
     ]
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.85.1 <1",
-    "@earendil-works/pi-tui": ">=0.85.1 <1"
+    "@earendil-works/pi-coding-agent": ">=0.85.1 <1"
   },
   "dependencies": {
     "globby": "16.2.4",
-    "longest-streak": "3.1.0",
     "p-map": "7.0.7",
     "p-timeout": "7.0.1",
-    "read-yaml-file": "2.1.0"
+    "read-yaml-file": "3.0.0"
   }
 }
