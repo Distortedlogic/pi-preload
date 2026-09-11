@@ -14,7 +14,9 @@
   "scripts": {
     "check": "npm run typecheck && npm run lint && npm test",
     "lint": "biome check .",
-    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:e2e": "node --experimental-strip-types --test test/e2e.test.ts",
+    "test:unit": "node --experimental-strip-types --test test/unit.test.ts",
     "typecheck": "tsc"
   },
   "files": [
