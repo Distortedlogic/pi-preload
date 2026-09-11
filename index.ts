@@ -98,7 +98,13 @@ export async function collectPreload(cwd: string, signal: AbortSignal) {
 
 export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
-		if (!ctx.isProjectTrusted() || ctx.sessionManager.buildContextEntries().length > 0) return;
+		const hasPreload = ctx.sessionManager
+			.buildContextEntries()
+			.some(
+				(entry) =>
+					entry.type === "message" && entry.message.role === "custom" && entry.message.customType === CUSTOM_TYPE,
+			);
+		if (!ctx.isProjectTrusted() || hasPreload) return;
 
 		ctx.ui.setStatus(CUSTOM_TYPE, "Preloading context...");
 

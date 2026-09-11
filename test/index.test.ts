@@ -33,7 +33,7 @@ test("collects contents from cwd, parent, and absolute globs", async (t) => {
 	assert.ok(text.includes(`File: ${absoluteFile}\n\nabsolute`));
 });
 
-test("session_start sends collected file blocks without starting a turn", async (t) => {
+test("session_start sends file blocks when unrelated context already exists", async (t) => {
 	const root = await mkdtemp(join(tmpdir(), "pi-context-preload-"));
 	t.after(async () => rm(root, { recursive: true, force: true }));
 	await Promise.all([
@@ -59,7 +59,9 @@ test("session_start sends collected file blocks without starting a turn", async 
 	await handler({ type: "session_start", reason: "startup" }, {
 		cwd: root,
 		isProjectTrusted: () => true,
-		sessionManager: { buildContextEntries: () => [] },
+		sessionManager: {
+			buildContextEntries: () => [{ type: "message", message: { role: "user" } }],
+		},
 		ui: {
 			setStatus: (key: string, value: string | undefined) => statuses.push([key, value]),
 			notify: (message: string, type?: NoticeType) => notices.push([message, type]),
