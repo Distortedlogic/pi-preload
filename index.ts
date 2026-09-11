@@ -1,254 +1,248 @@
-import { execFile } from "node:child_process";
 import { constants } from "node:fs";
-import { lstat, open } from "node:fs/promises";
-import { dirname, isAbsolute, join, matchesGlob, relative, resolve } from "node:path";
+import { lstat, open, readFile } from "node:fs/promises";
+import { dirname, isAbsolute, join } from "node:path";
 import { buffer } from "node:stream/consumers";
-import { setImmediate } from "node:timers/promises";
-import { promisify } from "node:util";
-import { estimateTokens, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { formatSize, keyHint, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { CancellableLoader } from "@earendil-works/pi-tui";
+import { globbyStream } from "globby";
+import { longestStreak } from "longest-streak";
+import pMap from "p-map";
+import pTimeout from "p-timeout";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 import { parse } from "yaml";
 
 const CUSTOM_TYPE = "context-preload";
+const PROGRESS_KEY = "context-preload-progress";
+const GLOB_LIST = Type.Array(Type.String({ minLength: 1, pattern: "\\S" }));
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_TOTAL_BYTES = 1024 * 1024;
 const MAX_FILES = 1000;
 const CONCURRENCY = 8;
 const DEADLINE_MS = 30_000;
-const execFileAsync = promisify(execFile);
-
-async function readText(path: string, limit: number, signal: AbortSignal) {
-	signal.throwIfAborted();
-	const flags = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0);
-	const file = await open(path, flags);
+async function collectPreload(cwd: string, signal: AbortSignal, report: (message: string) => void) {
+	let config: string;
 	try {
-		signal.throwIfAborted();
-		const stat = await file.stat();
-		signal.throwIfAborted();
-		if (!stat.isFile()) throw new Error(`Not a regular file: ${path}`);
-		if (stat.size > limit) throw new Error(`${path}: ${stat.size} bytes exceeds the ${limit}-byte limit.`);
-		const bytes = await buffer(file.createReadStream({ start: 0, end: limit, autoClose: false, signal }));
-		signal.throwIfAborted();
-		if (bytes.length > limit) throw new Error(`${path} grew beyond the ${limit}-byte limit.`);
-		try {
-			return { text: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes), bytes: bytes.length };
-		} catch {
-			throw new Error(`Not valid UTF-8 text: ${path}`);
+		const bytes = await readFile(join(cwd, "CONTEXT_PRELOAD.yml"), { signal });
+		if (bytes.length > MAX_FILE_BYTES) {
+			throw new Error(`CONTEXT_PRELOAD.yml exceeds ${formatSize(MAX_FILE_BYTES)}.`);
+		}
+		config = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+	} catch (error) {
+		if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
+		throw error;
+	}
+
+	const patterns: unknown = parse(config);
+	if (!Value.Check(GLOB_LIST, patterns)) {
+		throw new Error("CONTEXT_PRELOAD.yml must contain a list of nonempty file globs.");
+	}
+	if (patterns.length === 0) return;
+
+	for (const pattern of patterns) {
+		const path = pattern.startsWith("!") && !pattern.startsWith("!(") ? pattern.slice(1) : pattern;
+		if (isAbsolute(path) || path.split(/[\\/]/).includes("..")) {
+			throw new Error(`Glob must stay inside cwd: ${pattern}`);
+		}
+	}
+
+	report("Finding files...");
+	const files: string[] = [];
+	const stream = globbyStream(patterns, {
+		cwd,
+		gitignore: true,
+		onlyFiles: true,
+		followSymbolicLinks: false,
+		unique: true,
+	});
+	const abortDiscovery = () => stream.destroy(
+		signal.reason instanceof Error ? signal.reason : new Error("Preload cancelled."),
+	);
+	signal.addEventListener("abort", abortDiscovery, { once: true });
+	try {
+		for await (const file of stream) {
+			files.push(file);
+			if (files.length > MAX_FILES) {
+				throw new Error(`Preload has more than ${MAX_FILES} files.`);
+			}
 		}
 	} finally {
-		await file.close();
+		signal.removeEventListener("abort", abortDiscovery);
 	}
-}
+	signal.throwIfAborted();
+	files.sort((a, b) => dirname(a).localeCompare(dirname(b)) || a.localeCompare(b));
+	if (files.length === 0) return;
 
-async function collectPreload(cwd: string, signal: AbortSignal, report: (message: string) => void) {
-			let config: string;
+	let checked = 0;
+	const selected = await pMap(files, async (file) => {
+		signal.throwIfAborted();
+		const info = await lstat(join(cwd, file));
+		signal.throwIfAborted();
+		if (!info.isFile()) throw new Error(`Not a regular file: ${file}`);
+		if (info.size > MAX_FILE_BYTES) {
+			throw new Error(`${file} is ${formatSize(info.size)}; the file limit is ${formatSize(MAX_FILE_BYTES)}.`);
+		}
+		report(`Checking sizes: ${++checked}/${files.length}`);
+		return { path: file, bytes: info.size };
+	}, { concurrency: CONCURRENCY, signal });
+
+	const expectedBytes = selected.reduce((total, file) => total + file.bytes, 0);
+	if (expectedBytes > MAX_TOTAL_BYTES) {
+		throw new Error(`Selected files total ${formatSize(expectedBytes)}; the limit is ${formatSize(MAX_TOTAL_BYTES)}.`);
+	}
+
+	let completed = 0;
+	let loadedBytes = 0;
+	const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+	const blocks = await pMap(selected, async (file) => {
+		const handle = await open(
+			join(cwd, file.path),
+			constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+		);
+		try {
+			const info = await handle.stat();
+			if (!info.isFile()) throw new Error(`Not a regular file: ${file.path}`);
+			if (info.size > MAX_FILE_BYTES) {
+				throw new Error(`${file.path} grew beyond ${formatSize(MAX_FILE_BYTES)}.`);
+			}
+			const bytes = await buffer(handle.createReadStream({
+				start: 0,
+				end: MAX_FILE_BYTES,
+				autoClose: false,
+				signal,
+			}));
+			if (bytes.length > MAX_FILE_BYTES) {
+				throw new Error(`${file.path} grew beyond ${formatSize(MAX_FILE_BYTES)}.`);
+			}
+			loadedBytes += bytes.length;
+			if (loadedBytes > MAX_TOTAL_BYTES) {
+				throw new Error(`Selected files grew beyond ${formatSize(MAX_TOTAL_BYTES)}.`);
+			}
+
+			let text: string;
 			try {
-				config = (await readText(join(cwd, "CONTEXT_PRELOAD.yml"), MAX_FILE_BYTES, signal)).text;
-			} catch (error) {
-				if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-				throw error;
+				text = decoder.decode(bytes);
+			} catch {
+				throw new Error(`${file.path} is not valid UTF-8 text.`);
 			}
+			const fence = "`".repeat(Math.max(3, longestStreak(text, "`") + 1));
+			report(`Reading files: ${++completed}/${files.length}\n${formatSize(loadedBytes)}/${formatSize(expectedBytes)}`);
+			return `## ${file.path}\n\n${fence}\n${text}\n${fence}`;
+		} finally {
+			await handle.close();
+		}
+	}, { concurrency: CONCURRENCY, signal });
 
-			const patterns: unknown = parse(config);
-			if (!Array.isArray(patterns) || patterns.some((pattern) => typeof pattern !== "string" || !pattern.trim())) {
-				throw new Error("CONTEXT_PRELOAD.yml must contain a list of file globs.");
-			}
-
-			if (patterns.length === 0) return;
-			const included: string[] = [];
-			const excluded: string[] = [];
-			for (const pattern of patterns as string[]) {
-				const negative = pattern.startsWith("!") && !pattern.startsWith("!(");
-				const raw = negative ? pattern.slice(1) : pattern;
-				const local = isAbsolute(raw) ? relative(cwd, raw) : raw;
-				if (local === ".." || local.startsWith("../") || local.startsWith("..\\")) {
-					throw new Error(`Glob is outside cwd: ${pattern}`);
-				}
-				(negative ? excluded : included).push(local.startsWith("./") ? local.slice(2) : local);
-			}
-			if (included.length === 0) return;
-
-			report("Finding non-ignored files...");
-			const options = { cwd, signal, encoding: "utf8" as const, maxBuffer: MAX_TOTAL_BYTES };
-			const [listed, ignored] = await Promise.all([
-				execFileAsync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--deduplicate"], options),
-				execFileAsync("git", ["ls-files", "-z", "--cached", "--ignored", "--exclude-standard"], options),
-			]);
-			signal.throwIfAborted();
-			if (listed.stderr.trim() || ignored.stderr.trim()) {
-				throw new Error(`Git discovery reported: ${(listed.stderr + ignored.stderr).trim()}`);
-			}
-			const ignoredFiles = new Set(ignored.stdout.split("\0"));
-			const selected = new Set<string>();
-			let visited = 0;
-			for (const file of listed.stdout.split("\0")) {
-				signal.throwIfAborted();
-				if (++visited % 128 === 0) {
-					report(`Matching globs: ${selected.size} files selected`);
-					await setImmediate(undefined, { signal });
-				}
-				if (!file || ignoredFiles.has(file)) continue;
-				if (!included.some((pattern) => matchesGlob(file, pattern))) continue;
-				if (excluded.some((pattern) => matchesGlob(file, pattern))) continue;
-				selected.add(file);
-				if (selected.size > MAX_FILES) throw new Error(`Preload exceeds the ${MAX_FILES}-file limit.`);
-			}
-			const files = [...selected].sort((a, b) => dirname(a).localeCompare(dirname(b)) || a.localeCompare(b));
-			if (files.length === 0) return;
-
-			let totalBytes = 0;
-			let checked = 0;
-			for (let offset = 0; offset < files.length; offset += CONCURRENCY) {
-				await Promise.all(files.slice(offset, offset + CONCURRENCY).map(async (file) => {
-					signal.throwIfAborted();
-					const stat = await lstat(resolve(cwd, file));
-					signal.throwIfAborted();
-					if (!stat.isFile()) throw new Error(`Not a regular file: ${file}`);
-					if (stat.size > MAX_FILE_BYTES) throw new Error(`${file}: ${stat.size} bytes exceeds the ${MAX_FILE_BYTES}-byte limit.`);
-					totalBytes += stat.size;
-					if (totalBytes > MAX_TOTAL_BYTES) throw new Error(`Preload exceeds the ${MAX_TOTAL_BYTES}-byte total limit.`);
-					report(`Checking sizes: ${++checked}/${files.length} files`);
-				}));
-			}
-
-			const blocks: string[] = [];
-			let loadedBytes = 0;
-			let messageBytes = 0;
-			let completed = 0;
-			for (let offset = 0; offset < files.length; offset += CONCURRENCY) {
-				const batch = await Promise.all(files.slice(offset, offset + CONCURRENCY).map(async (file) => {
-					const result = await readText(resolve(cwd, file), MAX_FILE_BYTES, signal);
-					signal.throwIfAborted();
-					loadedBytes += result.bytes;
-					if (loadedBytes > MAX_TOTAL_BYTES) throw new Error(`Preload grew beyond the ${MAX_TOTAL_BYTES}-byte total limit.`);
-					const fence = "`".repeat((result.text.match(/`+/g) ?? []).reduce((max, run) => Math.max(max, run.length), 2) + 1);
-					const block = `## ${file}\n\n${fence}\n${result.text}\n${fence}`;
-					messageBytes += Buffer.byteLength(block) + (completed === 0 ? 0 : 2);
-					if (messageBytes > MAX_TOTAL_BYTES) throw new Error(`Preload with headings and fences exceeds ${MAX_TOTAL_BYTES} bytes.`);
-					report(`Reading files: ${++completed}/${files.length}\n${loadedBytes}/${totalBytes} bytes`);
-					return block;
-				}));
-				blocks.push(...batch);
-			}
-			signal.throwIfAborted();
-			return { content: blocks.join("\n\n"), count: files.length, bytes: loadedBytes };
-}
-
-interface PreloadJob {
-	controller: AbortController;
-	promise: Promise<void>;
-	stale: boolean;
-	failed: boolean;
-	finished: boolean;
-	message: string;
-	update?: (message: string) => void;
-	close?: () => void;
-}
-
-function hasHistory(ctx: ExtensionContext) {
-	return ctx.sessionManager.getBranch().some((entry) =>
-		entry.type === "message" || entry.type === "compaction" || entry.type === "branch_summary" ||
-		(entry.type === "custom_message" && entry.customType === CUSTOM_TYPE)
-	);
+	signal.throwIfAborted();
+	const content = blocks.join("\n\n");
+	if (Buffer.byteLength(content) > MAX_TOTAL_BYTES) {
+		throw new Error(`Context with headings is over ${formatSize(MAX_TOTAL_BYTES)}.`);
+	}
+	return { content, count: files.length, bytes: loadedBytes };
 }
 
 export default function (pi: ExtensionAPI) {
-	let current: PreloadJob | undefined;
+	let active: AbortController | undefined;
 
-	pi.on("session_start", (_event, ctx) => {
-		if (current) {
-			current.stale = true;
-			current.controller.abort(new Error("Preload replaced."));
-			current.close?.();
-			current = undefined;
-		}
-		if (!ctx.isProjectTrusted() || hasHistory(ctx)) return;
-		const job: PreloadJob = {
-			controller: new AbortController(), promise: Promise.resolve(),
-			stale: false, failed: false, finished: false, message: "Reading CONTEXT_PRELOAD.yml...",
-		};
-		current = job;
-		const signal = job.controller.signal;
-		const report = (message: string) => {
-			if (job.stale || job.finished || current !== job) return;
-			job.message = message;
-			job.update?.(message);
-			if (ctx.mode !== "tui" && ctx.hasUI) ctx.ui.setStatus(CUSTOM_TYPE, message);
-		};
-		let rejectAbort!: (reason?: unknown) => void;
-		const cancelled = new Promise<never>((_resolve, reject) => { rejectAbort = reject; });
-		const onAbort = () => rejectAbort(signal.reason);
-		signal.addEventListener("abort", onAbort, { once: true });
-		const timer = setTimeout(() => job.controller.abort(new Error("Preload timed out after 30 seconds.")), DEADLINE_MS);
-		timer.unref();
+	pi.on("session_shutdown", (_event, ctx) => {
+		active?.abort(new Error("Session closed."));
+		active = undefined;
+		if (ctx.hasUI) ctx.ui.setWidget(PROGRESS_KEY, undefined);
+	});
 
-		if (ctx.mode === "tui") {
-			void ctx.ui.custom<void>((tui, _theme, keybindings, done) => {
-				const cancelKeys = keybindings.getKeys("tui.select.cancel").join(" / ");
-				const panel = Object.assign(new Text("", 1, 1), {
-					handleInput(data: string) {
-						if (keybindings.matches(data, "tui.select.cancel")) {
-							job.controller.abort(new Error("Preload cancelled."));
-						}
-					},
-				});
-				job.update = (message) => {
-					panel.setText(`Preloading context\n\n${message}\n\nMessage input is locked.\n${cancelKeys}: cancel`);
-					tui.requestRender();
-				};
-				job.close = () => { job.close = undefined; done(); };
-				job.update(job.message);
-				if (job.finished || job.stale) queueMicrotask(() => job.close?.());
-				return panel;
-			}).then(() => {
-				if (!job.finished && !job.stale) job.controller.abort(new Error("Preload view closed."));
-			}).catch((error: unknown) => job.controller.abort(error));
-		}
+	pi.on("input", (_event, ctx) => {
+		if (ctx.hasUI) ctx.ui.setWidget(PROGRESS_KEY, undefined);
+		return { action: "continue" };
+	});
 
-		job.promise = Promise.race([collectPreload(ctx.cwd, signal, report), cancelled]).then((result) => {
+	pi.on("session_start", async (_event, ctx) => {
+		if (!ctx.isProjectTrusted() || ctx.sessionManager.buildContextEntries().length > 0) return;
+
+		const controller = new AbortController();
+		active = controller;
+		const { signal } = controller;
+
+		const insert = async (report: (message: string) => void) => {
+			const result = await collectPreload(ctx.cwd, signal, report);
 			signal.throwIfAborted();
-			if (job.stale || current !== job || !result) return;
-			if (hasHistory(ctx)) throw new Error("Conversation changed before preload finished.");
-			const window = ctx.model?.contextWindow;
-			if (window) {
-				const available = Math.max(0, Math.floor(window / 2) - (ctx.getContextUsage()?.tokens ?? 0));
-				const tokens = estimateTokens({ role: "user", content: [{ type: "text", text: result.content }], timestamp: Date.now() });
-				if (tokens > available) throw new Error(`Preload estimate is ${tokens} tokens; its available budget is ${available}.`);
+			if (!result) return;
+			if (active !== controller || ctx.sessionManager.buildContextEntries().length > 0) {
+				throw new Error("Session changed before preload finished.");
 			}
-			pi.sendMessage({ customType: CUSTOM_TYPE, content: result.content, display: false }, { triggerTurn: false });
-			report(`Ready: ${result.count} files, ${result.bytes} bytes`);
-			if (ctx.hasUI) ctx.ui.notify(`Preloaded ${result.count} files (${result.bytes} bytes).`, "info");
-		}).catch((error: unknown) => {
-			job.failed = true;
-			job.controller.abort(error);
-			if (job.stale || current !== job) return;
-			const detail = error instanceof Error ? error.message : String(error);
-			const message = `Context preload stopped: ${detail.slice(0, 1000)}${detail.length > 1000 ? "..." : ""} No context was added.`;
-			if (ctx.hasUI) ctx.ui.notify(message, "error");
-			else console.error(message);
-		}).finally(() => {
-			job.finished = true;
-			clearTimeout(timer);
-			signal.removeEventListener("abort", onAbort);
-			if (current !== job) return;
-			job.close?.();
-			if (!job.stale && ctx.mode !== "tui" && ctx.hasUI) ctx.ui.setStatus(CUSTOM_TYPE, undefined);
-			current = undefined;
+
+
+			pi.sendMessage(
+				{ customType: CUSTOM_TYPE, content: result.content, display: false },
+				{ triggerTurn: false },
+			);
+			report(`Ready: ${result.count} files — ${formatSize(result.bytes)}`);
+			return result;
+		};
+
+		const preload = (report: (message: string) => void) => pTimeout(insert(report), {
+			milliseconds: DEADLINE_MS,
+			signal,
+			fallback: () => {
+				const error = new Error("Preload timed out after 30 seconds.");
+				controller.abort(error);
+				throw error;
+			},
 		});
-	});
 
-	pi.on("input", async () => {
-		const job = current;
-		if (!job) return { action: "continue" };
-		await job.promise;
-		return { action: job.stale || job.failed ? "handled" : "continue" };
-	});
+		const complete = (result: Awaited<ReturnType<typeof insert>>) => {
+			if (!ctx.hasUI) return;
+			if (!result) {
+				ctx.ui.setWidget(PROGRESS_KEY, undefined);
+				return;
+			}
+			const message = `Context preloaded: ${result.count} files — ${formatSize(result.bytes)}`;
+			ctx.ui.setWidget(PROGRESS_KEY, [message], { placement: "belowEditor" });
+			ctx.ui.notify(message, "info");
+		};
 
-	pi.on("session_shutdown", () => {
-		if (!current) return;
-		current.stale = true;
-		current.controller.abort(new Error("Session closed."));
-		current.close?.();
-		current = undefined;
+		const fail = (error: unknown) => {
+			if (active !== controller) return;
+			const detail = error instanceof Error ? error.message : String(error);
+			const short = `${detail.slice(0, 500)}${detail.length > 500 ? "..." : ""}`;
+			const message = `Context preload stopped: ${short} No context was added.`;
+			if (ctx.hasUI) {
+				ctx.ui.setWidget(PROGRESS_KEY, [message], { placement: "belowEditor" });
+				ctx.ui.notify(message, "error");
+			} else {
+				console.error(message);
+			}
+		};
+
+		try {
+			if (ctx.mode === "tui") {
+				ctx.ui.setWidget(PROGRESS_KEY, ["Context preload: reading configuration"], { placement: "belowEditor" });
+				await ctx.ui.custom<void>((tui, theme, _keybindings, done) => {
+					const cancelHint = keyHint("tui.select.cancel", "cancel");
+					const loader = new CancellableLoader(
+						tui,
+						(text) => theme.fg("accent", text),
+						(text) => theme.fg("muted", text),
+						`Reading CONTEXT_PRELOAD.yml...\n\n${cancelHint}`,
+					);
+					loader.onAbort = () => controller.abort(new Error("Preload cancelled."));
+					void preload((message) => {
+						loader.setMessage(`${message}\n\n${cancelHint}`);
+						ctx.ui.setWidget(PROGRESS_KEY, [`Context preload: ${message.replace("\n", " — ")}`], {
+							placement: "belowEditor",
+						});
+					}).then(complete, fail).finally(() => done());
+					return loader;
+				});
+			} else {
+				complete(await preload((message) => {
+					if (ctx.hasUI) ctx.ui.setStatus(CUSTOM_TYPE, message);
+				}));
+			}
+		} catch (error) {
+			fail(error);
+		} finally {
+			if (ctx.hasUI) ctx.ui.setStatus(CUSTOM_TYPE, undefined);
+			if (active === controller) active = undefined;
+		}
 	});
 }
