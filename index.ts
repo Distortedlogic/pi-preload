@@ -15,7 +15,7 @@ const MAX_TOTAL_BYTES = 1024 * 1024;
 const MAX_FILES = 1000;
 const CONCURRENCY = 8;
 const DEADLINE_MS = 30_000;
-async function collectPreload(cwd: string, signal: AbortSignal) {
+export async function collectPreload(cwd: string, signal: AbortSignal) {
 	const [config] = await globby("CONTEXT_PRELOAD.yml", {
 		cwd,
 		onlyFiles: false,
@@ -32,7 +32,7 @@ async function collectPreload(cwd: string, signal: AbortSignal) {
 		throw new Error(`CONTEXT_PRELOAD.yml exceeds ${formatSize(MAX_FILE_BYTES)}.`);
 	}
 
-	const patterns = Value.Decode(GLOB_LIST, await readYamlFile(resolve(cwd, config.path)));
+	const patterns = Value.Parse(GLOB_LIST, await readYamlFile(resolve(cwd, config.path)));
 	signal.throwIfAborted();
 	if (patterns.length === 0) return;
 
