@@ -29,6 +29,25 @@ test("collectPreload reads cwd, parent, and absolute globs", async (t) => {
 	assert.ok(text.includes(`File: ${absoluteFile}\n\nabsolute`));
 });
 
+test("collectPreload excludes lock files from broad globs", async (t) => {
+	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
+	t.after(async () => rm(project, { recursive: true, force: true }));
+	await mkdir(join(project, "nested"));
+	await Promise.all([
+		writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify(["**/*"])),
+		writeFile(join(project, "source.ts"), "source"),
+		writeFile(join(project, "package-lock.json"), "package lock"),
+		writeFile(join(project, "nested", "uv.lock"), "uv lock"),
+	]);
+
+	const result = await collectPreload(project, AbortSignal.timeout(5_000));
+
+	assert.ok(result);
+	assert.equal(result.count, 2);
+	const paths = result.blocks.map((block) => block.text.slice(6, block.text.indexOf("\n\n")));
+	assert.deepEqual(paths, ["CONTEXT_PRELOAD.yml", "source.ts"]);
+});
+
 test("collectPreload rejects an invalid glob list", async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
 	t.after(async () => rm(project, { recursive: true, force: true }));

@@ -10,6 +10,30 @@ import { Value } from "typebox/value";
 
 const CUSTOM_TYPE = "context-preload";
 const GLOB_LIST = Type.Array(Type.String({ minLength: 1, pattern: "\\S" }));
+const LOCK_FILE_GLOBS = [
+	"**/.terraform.lock.hcl",
+	"**/bun.lock",
+	"**/bun.lockb",
+	"**/Cargo.lock",
+	"**/composer.lock",
+	"**/deno.lock",
+	"**/flake.lock",
+	"**/Gemfile.lock",
+	"**/gradle.lockfile",
+	"**/mix.lock",
+	"**/npm-shrinkwrap.json",
+	"**/package-lock.json",
+	"**/Package.resolved",
+	"**/packages.lock.json",
+	"**/paket.lock",
+	"**/Pipfile.lock",
+	"**/pnpm-lock.yaml",
+	"**/Podfile.lock",
+	"**/poetry.lock",
+	"**/pubspec.lock",
+	"**/uv.lock",
+	"**/yarn.lock",
+];
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_TOTAL_BYTES = 1024 * 1024;
 const MAX_FILES = 1000;
@@ -39,6 +63,7 @@ export async function collectPreload(cwd: string, signal: AbortSignal) {
 	const files = await globby(patterns, {
 		cwd,
 		gitignore: true,
+		ignore: LOCK_FILE_GLOBS,
 		onlyFiles: true,
 		followSymbolicLinks: false,
 		unique: true,

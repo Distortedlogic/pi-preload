@@ -14,8 +14,9 @@ test("Pi adds preloaded file contents to a fresh session", { timeout: 20_000 }, 
 	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-e2e-"));
 	await mkdir(join(project, "nested"));
 	await Promise.all([
-		writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify(["nested/context.txt"])),
+		writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify(["nested/**/*"])),
 		writeFile(join(project, "nested/context.txt"), "e2e preloaded text"),
+		writeFile(join(project, "nested/uv.lock"), "must not reach context"),
 	]);
 
 	const client = new RpcClient({
