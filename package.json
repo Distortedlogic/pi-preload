@@ -1,6 +1,6 @@
 {
   "name": "pi-context-preload",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Preload pi chat context from file globs in CONTEXT_PRELOAD.yml.",
   "type": "module",
@@ -9,10 +9,9 @@
   "engines": { "node": ">=22.19.0" },
   "files": ["index.ts", "README.md", "LICENSE"],
   "pi": { "extensions": ["./index.ts"] },
-  "peerDependencies": { "@earendil-works/pi-coding-agent": ">=0.84.4 <1" },
-  "dependencies": {
-    "fast-glob": "3.3.3",
-    "mdast-util-to-markdown": "2.1.2",
-    "yaml": "2.9.0"
-  }
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.84.4 <1",
+    "@earendil-works/pi-tui": ">=0.84.4 <1"
+  },
+  "dependencies": { "yaml": "2.9.0" }
 }
