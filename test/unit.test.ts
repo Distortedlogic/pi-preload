@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -81,12 +81,15 @@ test("collectPreload excludes ignored and lock files from content and tree", asy
 	assert.equal(result.count, 2);
 	const paths = result.blocks.slice(0, -1).map((block) => block.text.slice(6, block.text.indexOf("\n\n")));
 	assert.deepEqual(paths, ["CONTEXT_PRELOAD.yml", "source.ts"]);
-	const tree = result.blocks.at(-1)?.text;
-	assert.ok(tree);
+	const tree = await readFile(join(project, "TREE.txt"), "utf8");
+	assert.equal(result.blocks.at(-1)?.text, `File: TREE.txt\n\n${tree}`);
 	assert.match(tree, /\.gitignore/);
 	assert.match(tree, /\.toolrc/);
 	assert.match(tree, /source\.ts/);
-	assert.doesNotMatch(tree, /CONTEXT_PRELOAD\.yml|excluded\.ts|package-lock\.json|uv\.lock|secret\.txt|\.git\/config/);
+	assert.doesNotMatch(
+		tree,
+		/CONTEXT_PRELOAD\.yml|TREE\.txt|excluded\.ts|package-lock\.json|uv\.lock|secret\.txt|\.git\/config/,
+	);
 });
 
 test("collectPreload rejects an invalid glob list", async (t) => {

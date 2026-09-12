@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -46,10 +47,11 @@ const LOCK_FILE_GLOBS = [
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_TOTAL_BYTES = 1024 * 1024;
 const MAX_FILES = 1000;
-const MAX_TREE_BYTES = 32 * 1024;
-const TREE_DEPTH = 4;
-const TREE_FILE_LIMIT = 200;
-const TREE_HEADING = "Filesystem tree:\n\n";
+const MAX_TREE_BYTES = 16 * 1024;
+const TREE_FILE = "TREE.txt";
+const TREE_BLOCK_HEADING = `File: ${TREE_FILE}\n\n`;
+const MAX_TREE_OUTPUT_BYTES = MAX_TREE_BYTES - Buffer.byteLength(TREE_BLOCK_HEADING) - 1;
+const ON_DEMAND_TREE_DIRECTORIES = new Set(["__tests__", "test", "tests"]);
 const CONCURRENCY = 8;
 const DEADLINE_MS = 30_000;
 const DEFAULT_PRESET_DIRECTORY = fileURLToPath(new URL("./presets/", import.meta.url));
@@ -80,43 +82,115 @@ async function loadPatterns(
 	return [...inherited.flat(), ...ownPatterns];
 }
 
-async function collectFilesystemTree(cwd: string, ignorePatterns: string[], signal: AbortSignal) {
-	const ignorePattern = [
-		".git",
-		"CONTEXT_PRELOAD.yml",
-		...LOCK_FILE_GLOBS.map((pattern) => pattern.slice(pattern.lastIndexOf("/") + 1)),
-		...ignorePatterns,
-	].join("|");
-	const { stdout } = await execFileAsync(
-		"tree",
-		[
-			"-a",
-			"-n",
-			"-q",
-			"-x",
-			"-L",
-			String(TREE_DEPTH),
-			"--dirsfirst",
-			"--gitignore",
-			"--prune",
-			"--noreport",
-			"--filelimit",
-			String(TREE_FILE_LIMIT),
-			"--charset",
-			"UTF-8",
-			"-I",
-			ignorePattern,
-			"--",
-			".",
-		],
-		{
-			cwd,
-			encoding: "utf8",
-			maxBuffer: MAX_TREE_BYTES - Buffer.byteLength(TREE_HEADING),
-			signal,
-		},
+function exceededTreeAllocation(error: unknown) {
+	return (
+		error instanceof Error &&
+		"code" in error &&
+		error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"
 	);
-	return { type: "text" as const, text: `${TREE_HEADING}${stdout.trimEnd()}` };
+}
+
+async function renderFilesystemTree(cwd: string, inputPath: string, paths: string[], signal: AbortSignal) {
+	if (paths.length === 0) return ".";
+	await writeFile(inputPath, `${paths.join("\n")}\n`, { encoding: "utf8", signal });
+	try {
+		const { stdout } = await execFileAsync(
+			"tree",
+			["-n", "-q", "--dirsfirst", "--noreport", "--charset", "UTF-8", "--fromfile", "--", inputPath],
+			{ cwd, encoding: "utf8", maxBuffer: MAX_TREE_OUTPUT_BYTES, signal },
+		);
+		return stdout.trimEnd();
+	} catch (error) {
+		if (exceededTreeAllocation(error)) return;
+		throw error;
+	}
+}
+
+async function collectFilesystemTree(cwd: string, ignorePatterns: string[], signal: AbortSignal) {
+	const entries = (
+		await globby("**/*", {
+			cwd,
+			dot: true,
+			gitignore: true,
+			ignore: [
+				".git",
+				".git/**",
+				"**/.git",
+				"**/.git/**",
+				"CONTEXT_PRELOAD.yml",
+				TREE_FILE,
+				...LOCK_FILE_GLOBS,
+				...ignorePatterns,
+			],
+			onlyFiles: false,
+			followSymbolicLinks: false,
+			unique: true,
+			objectMode: true,
+		})
+	)
+		.filter((entry) => {
+			const ancestors = entry.path.split("/").slice(0, -1);
+			return !ancestors.some((part) => ON_DEMAND_TREE_DIRECTORIES.has(part.toLowerCase()));
+		})
+		.map((entry) => ({
+			depth: entry.path.split("/").length,
+			isDirectory: entry.dirent.isDirectory(),
+			path: entry.path,
+			treePath: `${entry.path}${entry.dirent.isDirectory() ? "/" : ""}`,
+		}))
+		.sort((a, b) => a.path.localeCompare(b.path));
+	signal.throwIfAborted();
+
+	const temporaryDirectory = await mkdtemp(join(tmpdir(), "pi-context-preload-tree-"));
+	const inputPath = join(temporaryDirectory, "paths.txt");
+	try {
+		const maximumDepth = entries.reduce((maximum, entry) => Math.max(maximum, entry.depth), 0);
+		let acceptedDepth = 0;
+		let acceptedPaths: string[] = [];
+		let acceptedTree = ".";
+
+		for (let depth = 1; depth <= maximumDepth; depth += 1) {
+			const candidatePaths = entries.filter((entry) => entry.depth <= depth).map((entry) => entry.treePath);
+			const candidateTree = await renderFilesystemTree(cwd, inputPath, candidatePaths, signal);
+			if (candidateTree === undefined) break;
+			acceptedDepth = depth;
+			acceptedPaths = candidatePaths;
+			acceptedTree = candidateTree;
+		}
+
+		if (acceptedDepth < maximumDepth) {
+			const expansionDepth = acceptedDepth + 1;
+			const includedPaths = new Set(acceptedPaths);
+			const folders = entries.filter(
+				(entry) =>
+					entry.isDirectory &&
+					entry.depth === 1 &&
+					!ON_DEMAND_TREE_DIRECTORIES.has(entry.path.toLowerCase()),
+			);
+			for (const folder of folders) {
+				for (const entry of entries) {
+					if (
+						entry.depth <= expansionDepth &&
+						(entry.path === folder.path || entry.path.startsWith(`${folder.path}/`))
+					) {
+						includedPaths.add(entry.treePath);
+					}
+				}
+				const candidatePaths = entries
+					.filter((entry) => includedPaths.has(entry.treePath))
+					.map((entry) => entry.treePath);
+				const candidateTree = await renderFilesystemTree(cwd, inputPath, candidatePaths, signal);
+				if (candidateTree === undefined) break;
+				acceptedTree = candidateTree;
+			}
+		}
+
+		const treeText = `${acceptedTree}\n`;
+		await writeFile(resolve(cwd, TREE_FILE), treeText, { encoding: "utf8", signal });
+		return { type: "text" as const, text: `${TREE_BLOCK_HEADING}${treeText}` };
+	} finally {
+		await rm(temporaryDirectory, { recursive: true, force: true });
+	}
 }
 
 export async function collectPreload(cwd: string, signal: AbortSignal, presetDirectory = DEFAULT_PRESET_DIRECTORY) {
@@ -147,7 +221,7 @@ export async function collectPreload(cwd: string, signal: AbortSignal, presetDir
 			: await globby(includePatterns, {
 					cwd,
 					gitignore: true,
-					ignore: [...LOCK_FILE_GLOBS, ...ignorePatterns],
+					ignore: [TREE_FILE, ...LOCK_FILE_GLOBS, ...ignorePatterns],
 					onlyFiles: true,
 					followSymbolicLinks: false,
 					unique: true,
@@ -196,11 +270,16 @@ export async function collectPreload(cwd: string, signal: AbortSignal, presetDir
 		{ concurrency: CONCURRENCY, signal },
 	);
 
+	const fileContextBytes = blocks.reduce((total, block) => total + Buffer.byteLength(block.text), 0);
+	if (fileContextBytes > MAX_TOTAL_BYTES) {
+		throw new Error(`Context with headings is over ${formatSize(MAX_TOTAL_BYTES)}.`);
+	}
+
 	blocks.push(await collectFilesystemTree(cwd, ignorePatterns, signal));
 	signal.throwIfAborted();
 	const contextBytes = blocks.reduce((total, block) => total + Buffer.byteLength(block.text), 0);
-	if (contextBytes > MAX_TOTAL_BYTES) {
-		throw new Error(`Context with headings and filesystem tree is over ${formatSize(MAX_TOTAL_BYTES)}.`);
+	if (contextBytes > MAX_TOTAL_BYTES + MAX_TREE_BYTES) {
+		throw new Error(`Context with filesystem tree is over ${formatSize(MAX_TOTAL_BYTES + MAX_TREE_BYTES)}.`);
 	}
 	return { blocks, count: files.length, bytes: loadedBytes };
 }
