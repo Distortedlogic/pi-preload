@@ -15,7 +15,10 @@ test("collectPreload reads cwd, parent, and absolute globs", async (t) => {
 		writeFile(join(project, "inside.txt"), "inside"),
 		writeFile(join(root, "parent.txt"), "parent"),
 		writeFile(absoluteFile, "absolute"),
-		writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify(["inside.txt", "../parent.txt", absoluteFile])),
+		writeFile(
+			join(project, "CONTEXT_PRELOAD.yml"),
+			JSON.stringify({ files: ["inside.txt", "../parent.txt", absoluteFile] }),
+		),
 	]);
 
 	const result = await collectPreload(project, AbortSignal.timeout(5_000));
@@ -40,7 +43,7 @@ test("collectPreload merges named presets with local globs", async (t) => {
 			join(project, "CONTEXT_PRELOAD.yml"),
 			JSON.stringify({ extends: ["common"], files: ["local.txt", "!src/excluded.ts"] }),
 		),
-		writeFile(join(presetDirectory, "common.yml"), JSON.stringify(["src/**/*.ts"])),
+		writeFile(join(presetDirectory, "common.yml"), JSON.stringify({ files: ["src/**/*.ts"] })),
 		writeFile(join(project, "src", "included.ts"), "included"),
 		writeFile(join(project, "src", "excluded.ts"), "excluded"),
 		writeFile(join(project, "local.txt"), "local"),
@@ -59,7 +62,7 @@ test("collectPreload excludes lock files from broad globs", async (t) => {
 	t.after(async () => rm(project, { recursive: true, force: true }));
 	await mkdir(join(project, "nested"));
 	await Promise.all([
-		writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify(["**/*"])),
+		writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify({ files: ["**/*"] })),
 		writeFile(join(project, "source.ts"), "source"),
 		writeFile(join(project, "package-lock.json"), "package lock"),
 		writeFile(join(project, "nested", "uv.lock"), "uv lock"),
@@ -76,7 +79,7 @@ test("collectPreload excludes lock files from broad globs", async (t) => {
 test("collectPreload rejects an invalid glob list", async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
 	t.after(async () => rm(project, { recursive: true, force: true }));
-	await writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify([42]));
+	await writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify({ files: [42] }));
 
 	await assert.rejects(collectPreload(project, AbortSignal.timeout(5_000)));
 });
@@ -85,7 +88,7 @@ test("collectPreload rejects invalid UTF-8", async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
 	t.after(async () => rm(project, { recursive: true, force: true }));
 	await Promise.all([
-		writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify(["invalid.txt"])),
+		writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify({ files: ["invalid.txt"] })),
 		writeFile(join(project, "invalid.txt"), Uint8Array.from([0xff])),
 	]);
 

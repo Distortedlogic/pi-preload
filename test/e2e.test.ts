@@ -16,7 +16,7 @@ test("Pi adds preloaded file contents to a fresh session", { timeout: 20_000 }, 
 	await Promise.all([mkdir(join(project, "nested")), mkdir(join(agentDir, "context-preload"), { recursive: true })]);
 	await Promise.all([
 		writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify({ extends: ["common"] })),
-		writeFile(join(agentDir, "context-preload/common.yml"), JSON.stringify(["nested/**/*"])),
+		writeFile(join(agentDir, "context-preload/common.yml"), JSON.stringify({ files: ["nested/**/*"] })),
 		writeFile(join(project, "nested/context.txt"), "e2e preloaded text"),
 		writeFile(join(project, "nested/uv.lock"), "must not reach context"),
 	]);

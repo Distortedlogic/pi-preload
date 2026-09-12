@@ -9,16 +9,13 @@ import { Value } from "typebox/value";
 
 const CUSTOM_TYPE = "context-preload";
 const GLOB_LIST = Type.Array(Type.String({ minLength: 1 }));
-const PRELOAD_CONFIG = Type.Union([
-	GLOB_LIST,
-	Type.Object(
-		{
-			extends: Type.Optional(GLOB_LIST),
-			files: Type.Optional(GLOB_LIST),
-		},
-		{ additionalProperties: false },
-	),
-]);
+const PRELOAD_CONFIG = Type.Object(
+	{
+		extends: Type.Optional(GLOB_LIST),
+		files: Type.Optional(GLOB_LIST),
+	},
+	{ additionalProperties: false },
+);
 const LOCK_FILE_GLOBS = [
 	"**/.terraform.lock.hcl",
 	"**/bun.lock",
@@ -48,6 +45,25 @@ const MAX_TOTAL_BYTES = 1024 * 1024;
 const MAX_FILES = 1000;
 const CONCURRENCY = 8;
 const DEADLINE_MS = 30_000;
+
+async function loadPatterns(
+	configPath: string,
+	presetDirectory: string,
+	signal: AbortSignal,
+	ancestors: string[] = [],
+): Promise<string[]> {
+	const path = resolve(configPath);
+	if (ancestors.includes(path)) throw new Error(`Circular context preload preset: ${path}`);
+	const config = Value.Parse(PRELOAD_CONFIG, await readYamlFile(path));
+	const inherited = await pMap(
+		config.extends ?? [],
+		async (preset) =>
+			loadPatterns(join(presetDirectory, `${preset}.yml`), presetDirectory, signal, [...ancestors, path]),
+		{ concurrency: CONCURRENCY, signal },
+	);
+	return [...inherited.flat(), ...(config.files ?? [])];
+}
+
 export async function collectPreload(
 	cwd: string,
 	signal: AbortSignal,
@@ -69,19 +85,8 @@ export async function collectPreload(
 		throw new Error(`CONTEXT_PRELOAD.yml exceeds ${formatSize(MAX_FILE_BYTES)}.`);
 	}
 
-	const parsed = Value.Parse(PRELOAD_CONFIG, await readYamlFile(resolve(cwd, config.path)));
+	const patterns = await loadPatterns(resolve(cwd, config.path), presetDirectory, signal);
 	signal.throwIfAborted();
-	let patterns: string[];
-	if (Array.isArray(parsed)) {
-		patterns = parsed;
-	} else {
-		const inherited = await pMap(
-			parsed.extends ?? [],
-			async (preset) => Value.Parse(GLOB_LIST, await readYamlFile(join(presetDirectory, `${preset}.yml`))),
-			{ concurrency: CONCURRENCY, signal },
-		);
-		patterns = [...inherited.flat(), ...(parsed.files ?? [])];
-	}
 	if (patterns.length === 0) return;
 
 	const files = await globby(patterns, {
