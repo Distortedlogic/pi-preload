@@ -1,5 +1,5 @@
-- "index.ts"
-- "package.json"
-- "../../3rd/pi/packages/coding-agent/docs/{extensions,packages,tui,rpc,session-format,custom-provider,environment-variables}.md"
-- "../../3rd/pi/packages/coding-agent/src/core/extensions/**/*.ts"
-- "../../3rd/pi/packages/coding-agent/src/core/{agent-session,messages,session-manager}.ts"
+extends:
+  - "pi-extension"
+files:
+  - "index.ts"
+  - "package.json"

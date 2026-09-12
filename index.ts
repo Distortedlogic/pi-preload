@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
-import { type ExtensionAPI, formatSize } from "@earendil-works/pi-coding-agent";
+import { dirname, join, resolve } from "node:path";
+import { type ExtensionAPI, formatSize, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { globby } from "globby";
 import pMap from "p-map";
 import pTimeout from "p-timeout";
@@ -10,6 +10,17 @@ import { Value } from "typebox/value";
 
 const CUSTOM_TYPE = "context-preload";
 const GLOB_LIST = Type.Array(Type.String({ minLength: 1, pattern: "\\S" }));
+const PRESET_NAME = Type.String({ minLength: 1, pattern: "^[a-z0-9][a-z0-9-]*$" });
+const PRELOAD_CONFIG = Type.Union([
+	GLOB_LIST,
+	Type.Object(
+		{
+			extends: Type.Optional(Type.Array(PRESET_NAME)),
+			files: Type.Optional(GLOB_LIST),
+		},
+		{ additionalProperties: false },
+	),
+]);
 const LOCK_FILE_GLOBS = [
 	"**/.terraform.lock.hcl",
 	"**/bun.lock",
@@ -39,7 +50,11 @@ const MAX_TOTAL_BYTES = 1024 * 1024;
 const MAX_FILES = 1000;
 const CONCURRENCY = 8;
 const DEADLINE_MS = 30_000;
-export async function collectPreload(cwd: string, signal: AbortSignal) {
+export async function collectPreload(
+	cwd: string,
+	signal: AbortSignal,
+	presetDirectory = join(getAgentDir(), "context-preload"),
+) {
 	const [config] = await globby("CONTEXT_PRELOAD.yml", {
 		cwd,
 		onlyFiles: false,
@@ -56,8 +71,19 @@ export async function collectPreload(cwd: string, signal: AbortSignal) {
 		throw new Error(`CONTEXT_PRELOAD.yml exceeds ${formatSize(MAX_FILE_BYTES)}.`);
 	}
 
-	const patterns = Value.Parse(GLOB_LIST, await readYamlFile(resolve(cwd, config.path)));
+	const parsed = Value.Parse(PRELOAD_CONFIG, await readYamlFile(resolve(cwd, config.path)));
 	signal.throwIfAborted();
+	let patterns: string[];
+	if (Array.isArray(parsed)) {
+		patterns = parsed;
+	} else {
+		const inherited: string[] = [];
+		for (const preset of parsed.extends ?? []) {
+			signal.throwIfAborted();
+			inherited.push(...Value.Parse(GLOB_LIST, await readYamlFile(join(presetDirectory, `${preset}.yml`))));
+		}
+		patterns = [...inherited, ...(parsed.files ?? [])];
+	}
 	if (patterns.length === 0) return;
 
 	const files = await globby(patterns, {

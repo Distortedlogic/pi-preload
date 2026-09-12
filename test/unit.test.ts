@@ -29,6 +29,31 @@ test("collectPreload reads cwd, parent, and absolute globs", async (t) => {
 	assert.ok(text.includes(`File: ${absoluteFile}\n\nabsolute`));
 });
 
+test("collectPreload merges named presets with local globs", async (t) => {
+	const root = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
+	t.after(async () => rm(root, { recursive: true, force: true }));
+	const project = join(root, "project");
+	const presetDirectory = join(root, "presets");
+	await Promise.all([mkdir(join(project, "src"), { recursive: true }), mkdir(presetDirectory)]);
+	await Promise.all([
+		writeFile(
+			join(project, "CONTEXT_PRELOAD.yml"),
+			JSON.stringify({ extends: ["common"], files: ["local.txt", "!src/excluded.ts"] }),
+		),
+		writeFile(join(presetDirectory, "common.yml"), JSON.stringify(["src/**/*.ts"])),
+		writeFile(join(project, "src", "included.ts"), "included"),
+		writeFile(join(project, "src", "excluded.ts"), "excluded"),
+		writeFile(join(project, "local.txt"), "local"),
+	]);
+
+	const result = await collectPreload(project, AbortSignal.timeout(5_000), presetDirectory);
+
+	assert.ok(result);
+	assert.equal(result.count, 2);
+	const paths = result.blocks.map((block) => block.text.slice(6, block.text.indexOf("\n\n")));
+	assert.deepEqual(paths, ["local.txt", "src/included.ts"]);
+});
+
 test("collectPreload excludes lock files from broad globs", async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
 	t.after(async () => rm(project, { recursive: true, force: true }));
