@@ -55,18 +55,23 @@ test("collectPreload merges named presets with local globs", async (t) => {
 
 	assert.ok(result);
 	assert.equal(result.count, 2);
-	const paths = result.blocks.map((block) => block.text.slice(6, block.text.indexOf("\n\n")));
+	const paths = result.blocks.slice(0, -1).map((block) => block.text.slice(6, block.text.indexOf("\n\n")));
 	assert.deepEqual(paths, ["local.txt", join(project, "src", "included.ts")]);
 });
 
-test("collectPreload excludes lock files from broad globs", async (t) => {
+test("collectPreload excludes ignored and lock files from content and tree", async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
 	t.after(async () => rm(project, { recursive: true, force: true }));
-	await mkdir(join(project, "nested"));
+	await Promise.all([mkdir(join(project, ".git")), mkdir(join(project, "ignored")), mkdir(join(project, "nested"))]);
 	await Promise.all([
-		writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify({ files: ["**/*"] })),
+		writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify({ files: ["**/*", "!excluded.ts"] })),
+		writeFile(join(project, ".gitignore"), "ignored/\n"),
+		writeFile(join(project, ".toolrc"), "hidden configuration"),
 		writeFile(join(project, "source.ts"), "source"),
+		writeFile(join(project, "excluded.ts"), "excluded"),
 		writeFile(join(project, "package-lock.json"), "package lock"),
+		writeFile(join(project, ".git", "config"), "git metadata"),
+		writeFile(join(project, "ignored", "secret.txt"), "ignored"),
 		writeFile(join(project, "nested", "uv.lock"), "uv lock"),
 	]);
 
@@ -74,8 +79,14 @@ test("collectPreload excludes lock files from broad globs", async (t) => {
 
 	assert.ok(result);
 	assert.equal(result.count, 2);
-	const paths = result.blocks.map((block) => block.text.slice(6, block.text.indexOf("\n\n")));
+	const paths = result.blocks.slice(0, -1).map((block) => block.text.slice(6, block.text.indexOf("\n\n")));
 	assert.deepEqual(paths, ["CONTEXT_PRELOAD.yml", "source.ts"]);
+	const tree = result.blocks.at(-1)?.text;
+	assert.ok(tree);
+	assert.match(tree, /\.gitignore/);
+	assert.match(tree, /\.toolrc/);
+	assert.match(tree, /source\.ts/);
+	assert.doesNotMatch(tree, /CONTEXT_PRELOAD\.yml|excluded\.ts|package-lock\.json|uv\.lock|secret\.txt|\.git\/config/);
 });
 
 test("collectPreload rejects an invalid glob list", async (t) => {

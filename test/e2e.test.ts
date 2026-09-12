@@ -10,7 +10,7 @@ const extensionPath = fileURLToPath(new URL("../index.ts", import.meta.url));
 const codingAgentEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
 const cliPath = join(dirname(codingAgentEntry), "cli.js");
 
-test("Pi adds preloaded file contents to a fresh session", { timeout: 20_000 }, async (t) => {
+test("Pi adds preloaded file contents and a filesystem tree to a fresh session", { timeout: 20_000 }, async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-e2e-"));
 	await mkdir(join(project, "nested"));
 	await Promise.all([
@@ -37,5 +37,11 @@ test("Pi adds preloaded file contents to a fresh session", { timeout: 20_000 }, 
 	assert.ok(preload);
 	if (preload.role !== "custom") assert.fail("Expected a custom preload message");
 	assert.equal(preload.display, false);
-	assert.deepEqual(preload.content, [{ type: "text", text: "File: nested/context.txt\n\ne2e preloaded text" }]);
+	assert.deepEqual(preload.content, [
+		{ type: "text", text: "File: nested/context.txt\n\ne2e preloaded text" },
+		{
+			type: "text",
+			text: "Filesystem tree:\n\n.\n└── nested\n    └── context.txt",
+		},
+	]);
 });

@@ -1,6 +1,8 @@
+import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { type ExtensionAPI, formatSize } from "@earendil-works/pi-coding-agent";
 import { globby } from "globby";
 import pMap from "p-map";
@@ -44,9 +46,14 @@ const LOCK_FILE_GLOBS = [
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_TOTAL_BYTES = 1024 * 1024;
 const MAX_FILES = 1000;
+const MAX_TREE_BYTES = 32 * 1024;
+const TREE_DEPTH = 4;
+const TREE_FILE_LIMIT = 200;
+const TREE_HEADING = "Filesystem tree:\n\n";
 const CONCURRENCY = 8;
 const DEADLINE_MS = 30_000;
 const DEFAULT_PRESET_DIRECTORY = fileURLToPath(new URL("./presets/", import.meta.url));
+const execFileAsync = promisify(execFile);
 
 async function loadPatterns(
 	configPath: string,
@@ -73,6 +80,45 @@ async function loadPatterns(
 	return [...inherited.flat(), ...ownPatterns];
 }
 
+async function collectFilesystemTree(cwd: string, ignorePatterns: string[], signal: AbortSignal) {
+	const ignorePattern = [
+		".git",
+		"CONTEXT_PRELOAD.yml",
+		...LOCK_FILE_GLOBS.map((pattern) => pattern.slice(pattern.lastIndexOf("/") + 1)),
+		...ignorePatterns,
+	].join("|");
+	const { stdout } = await execFileAsync(
+		"tree",
+		[
+			"-a",
+			"-n",
+			"-q",
+			"-x",
+			"-L",
+			String(TREE_DEPTH),
+			"--dirsfirst",
+			"--gitignore",
+			"--prune",
+			"--noreport",
+			"--filelimit",
+			String(TREE_FILE_LIMIT),
+			"--charset",
+			"UTF-8",
+			"-I",
+			ignorePattern,
+			"--",
+			".",
+		],
+		{
+			cwd,
+			encoding: "utf8",
+			maxBuffer: MAX_TREE_BYTES - Buffer.byteLength(TREE_HEADING),
+			signal,
+		},
+	);
+	return { type: "text" as const, text: `${TREE_HEADING}${stdout.trimEnd()}` };
+}
+
 export async function collectPreload(cwd: string, signal: AbortSignal, presetDirectory = DEFAULT_PRESET_DIRECTORY) {
 	const [config] = await globby("CONTEXT_PRELOAD.yml", {
 		cwd,
@@ -92,24 +138,25 @@ export async function collectPreload(cwd: string, signal: AbortSignal, presetDir
 
 	const patterns = await loadPatterns(resolve(cwd, config.path), presetDirectory, signal);
 	signal.throwIfAborted();
-	if (patterns.length === 0) return;
 	const includePatterns = patterns.filter((pattern) => !pattern.startsWith("!"));
 	const ignorePatterns = patterns.filter((pattern) => pattern.startsWith("!")).map((pattern) => pattern.slice(1));
 
-	const files = await globby(includePatterns, {
-		cwd,
-		gitignore: true,
-		ignore: [...LOCK_FILE_GLOBS, ...ignorePatterns],
-		onlyFiles: true,
-		followSymbolicLinks: false,
-		unique: true,
-		objectMode: true,
-		stats: true,
-	});
+	const files =
+		includePatterns.length === 0
+			? []
+			: await globby(includePatterns, {
+					cwd,
+					gitignore: true,
+					ignore: [...LOCK_FILE_GLOBS, ...ignorePatterns],
+					onlyFiles: true,
+					followSymbolicLinks: false,
+					unique: true,
+					objectMode: true,
+					stats: true,
+				});
 	signal.throwIfAborted();
 	if (files.length > MAX_FILES) throw new Error(`Preload has more than ${MAX_FILES} files.`);
 	files.sort((a, b) => dirname(a.path).localeCompare(dirname(b.path)) || a.path.localeCompare(b.path));
-	if (files.length === 0) return;
 
 	const expectedBytes = files.reduce((total, file) => {
 		if (!file.dirent.isFile()) throw new Error(`Not a regular file: ${file.path}`);
@@ -149,10 +196,11 @@ export async function collectPreload(cwd: string, signal: AbortSignal, presetDir
 		{ concurrency: CONCURRENCY, signal },
 	);
 
+	blocks.push(await collectFilesystemTree(cwd, ignorePatterns, signal));
 	signal.throwIfAborted();
 	const contextBytes = blocks.reduce((total, block) => total + Buffer.byteLength(block.text), 0);
 	if (contextBytes > MAX_TOTAL_BYTES) {
-		throw new Error(`Context with headings is over ${formatSize(MAX_TOTAL_BYTES)}.`);
+		throw new Error(`Context with headings and filesystem tree is over ${formatSize(MAX_TOTAL_BYTES)}.`);
 	}
 	return { blocks, count: files.length, bytes: loadedBytes };
 }
