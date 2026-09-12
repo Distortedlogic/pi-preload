@@ -12,11 +12,9 @@ const cliPath = join(dirname(codingAgentEntry), "cli.js");
 
 test("Pi adds preloaded file contents to a fresh session", { timeout: 20_000 }, async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-e2e-"));
-	const agentDir = join(project, "agent");
-	await Promise.all([mkdir(join(project, "nested")), mkdir(join(agentDir, "context-preload"), { recursive: true })]);
+	await mkdir(join(project, "nested"));
 	await Promise.all([
-		writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify({ extends: ["common"] })),
-		writeFile(join(agentDir, "context-preload/common.yml"), JSON.stringify({ files: ["nested/**/*"] })),
+		writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify({ files: ["nested/**/*"] })),
 		writeFile(join(project, "nested/context.txt"), "e2e preloaded text"),
 		writeFile(join(project, "nested/uv.lock"), "must not reach context"),
 	]);
@@ -24,7 +22,7 @@ test("Pi adds preloaded file contents to a fresh session", { timeout: 20_000 }, 
 	const client = new RpcClient({
 		cliPath,
 		cwd: project,
-		env: { PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1" },
+		env: { PI_OFFLINE: "1" },
 		args: ["--approve", "--no-session", "--no-extensions", "--extension", extensionPath],
 	});
 	t.after(async () => {

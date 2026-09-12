@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
-import { type ExtensionAPI, formatSize, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { type ExtensionAPI, formatSize } from "@earendil-works/pi-coding-agent";
 import { globby } from "globby";
 import pMap from "p-map";
 import { readYamlFile } from "read-yaml-file";
@@ -45,6 +46,7 @@ const MAX_TOTAL_BYTES = 1024 * 1024;
 const MAX_FILES = 1000;
 const CONCURRENCY = 8;
 const DEADLINE_MS = 30_000;
+const DEFAULT_PRESET_DIRECTORY = fileURLToPath(new URL("./presets/", import.meta.url));
 
 async function loadPatterns(
 	configPath: string,
@@ -55,20 +57,23 @@ async function loadPatterns(
 	const path = resolve(configPath);
 	if (ancestors.includes(path)) throw new Error(`Circular context preload preset: ${path}`);
 	const config = Value.Parse(PRELOAD_CONFIG, await readYamlFile(path));
+	const ownPatterns = config.files ?? [];
+	if (ancestors.length > 0) {
+		const relativePattern = ownPatterns.find(
+			(pattern) => !isAbsolute(pattern.startsWith("!") ? pattern.slice(1) : pattern),
+		);
+		if (relativePattern) throw new Error(`Context preload preset pattern must be absolute: ${relativePattern}`);
+	}
 	const inherited = await pMap(
 		config.extends ?? [],
 		async (preset) =>
 			loadPatterns(join(presetDirectory, `${preset}.yml`), presetDirectory, signal, [...ancestors, path]),
 		{ concurrency: CONCURRENCY, signal },
 	);
-	return [...inherited.flat(), ...(config.files ?? [])];
+	return [...inherited.flat(), ...ownPatterns];
 }
 
-export async function collectPreload(
-	cwd: string,
-	signal: AbortSignal,
-	presetDirectory = join(getAgentDir(), "context-preload"),
-) {
+export async function collectPreload(cwd: string, signal: AbortSignal, presetDirectory = DEFAULT_PRESET_DIRECTORY) {
 	const [config] = await globby("CONTEXT_PRELOAD.yml", {
 		cwd,
 		onlyFiles: false,
@@ -88,11 +93,13 @@ export async function collectPreload(
 	const patterns = await loadPatterns(resolve(cwd, config.path), presetDirectory, signal);
 	signal.throwIfAborted();
 	if (patterns.length === 0) return;
+	const includePatterns = patterns.filter((pattern) => !pattern.startsWith("!"));
+	const ignorePatterns = patterns.filter((pattern) => pattern.startsWith("!")).map((pattern) => pattern.slice(1));
 
-	const files = await globby(patterns, {
+	const files = await globby(includePatterns, {
 		cwd,
 		gitignore: true,
-		ignore: LOCK_FILE_GLOBS,
+		ignore: [...LOCK_FILE_GLOBS, ...ignorePatterns],
 		onlyFiles: true,
 		followSymbolicLinks: false,
 		unique: true,

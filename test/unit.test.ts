@@ -37,13 +37,15 @@ test("collectPreload merges named presets with local globs", async (t) => {
 	t.after(async () => rm(root, { recursive: true, force: true }));
 	const project = join(root, "project");
 	const presetDirectory = join(root, "presets");
+	const sourcePattern = join(project, "src", "**", "*.ts");
+	const excludedPattern = `!${join(project, "src", "excluded.ts")}`;
 	await Promise.all([mkdir(join(project, "src"), { recursive: true }), mkdir(presetDirectory)]);
 	await Promise.all([
 		writeFile(
 			join(project, "CONTEXT_PRELOAD.yml"),
-			JSON.stringify({ extends: ["common"], files: ["local.txt", "!src/excluded.ts"] }),
+			JSON.stringify({ extends: ["common"], files: ["local.txt", excludedPattern] }),
 		),
-		writeFile(join(presetDirectory, "common.yml"), JSON.stringify({ files: ["src/**/*.ts"] })),
+		writeFile(join(presetDirectory, "common.yml"), JSON.stringify({ files: [sourcePattern] })),
 		writeFile(join(project, "src", "included.ts"), "included"),
 		writeFile(join(project, "src", "excluded.ts"), "excluded"),
 		writeFile(join(project, "local.txt"), "local"),
@@ -54,7 +56,7 @@ test("collectPreload merges named presets with local globs", async (t) => {
 	assert.ok(result);
 	assert.equal(result.count, 2);
 	const paths = result.blocks.map((block) => block.text.slice(6, block.text.indexOf("\n\n")));
-	assert.deepEqual(paths, ["local.txt", "src/included.ts"]);
+	assert.deepEqual(paths, ["local.txt", join(project, "src", "included.ts")]);
 });
 
 test("collectPreload excludes lock files from broad globs", async (t) => {
