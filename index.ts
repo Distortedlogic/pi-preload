@@ -3,19 +3,17 @@ import { dirname, join, resolve } from "node:path";
 import { type ExtensionAPI, formatSize, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { globby } from "globby";
 import pMap from "p-map";
-import pTimeout from "p-timeout";
 import { readYamlFile } from "read-yaml-file";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 
 const CUSTOM_TYPE = "context-preload";
-const GLOB_LIST = Type.Array(Type.String({ minLength: 1, pattern: "\\S" }));
-const PRESET_NAME = Type.String({ minLength: 1, pattern: "^[a-z0-9][a-z0-9-]*$" });
+const GLOB_LIST = Type.Array(Type.String({ minLength: 1 }));
 const PRELOAD_CONFIG = Type.Union([
 	GLOB_LIST,
 	Type.Object(
 		{
-			extends: Type.Optional(Type.Array(PRESET_NAME)),
+			extends: Type.Optional(GLOB_LIST),
 			files: Type.Optional(GLOB_LIST),
 		},
 		{ additionalProperties: false },
@@ -77,12 +75,12 @@ export async function collectPreload(
 	if (Array.isArray(parsed)) {
 		patterns = parsed;
 	} else {
-		const inherited: string[] = [];
-		for (const preset of parsed.extends ?? []) {
-			signal.throwIfAborted();
-			inherited.push(...Value.Parse(GLOB_LIST, await readYamlFile(join(presetDirectory, `${preset}.yml`))));
-		}
-		patterns = [...inherited, ...(parsed.files ?? [])];
+		const inherited = await pMap(
+			parsed.extends ?? [],
+			async (preset) => Value.Parse(GLOB_LIST, await readYamlFile(join(presetDirectory, `${preset}.yml`))),
+			{ concurrency: CONCURRENCY, signal },
+		);
+		patterns = [...inherited.flat(), ...(parsed.files ?? [])];
 	}
 	if (patterns.length === 0) return;
 
@@ -161,10 +159,7 @@ export default function (pi: ExtensionAPI) {
 
 		try {
 			const signal = AbortSignal.timeout(DEADLINE_MS);
-			const result = await pTimeout(collectPreload(ctx.cwd, signal), {
-				milliseconds: DEADLINE_MS,
-				signal,
-			});
+			const result = await collectPreload(ctx.cwd, signal);
 			if (!result) return;
 
 			pi.sendMessage({ customType: CUSTOM_TYPE, content: result.blocks, display: false }, { triggerTurn: false });
