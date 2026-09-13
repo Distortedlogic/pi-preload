@@ -271,29 +271,29 @@ type ContextFactsLoader = (input: {
 
 ## Work Unit 8: Update the existing unit tests
 
-- [ ] Update `test/unit.test.ts`; do not create another unit-test file.
-- [ ] Add one helper that narrows text blocks before `.text` access so image blocks remain type-safe.
-- [ ] Preserve existing static preload assertions except where safe text-block narrowing is required.
-- [ ] Add configuration tests for context inheritance, first-position deduplication, and ordering.
-- [ ] Add tests for unsafe context names and missing convention entry files.
-- [ ] Add a temporary package-owned context fixture with `facts.ts`, `index.md.njk`, and Markdown includes to test the generic convention without a registry.
-- [ ] Test that an unselected temporary source is not imported.
-- [ ] Test that a source returning `undefined` adds no block.
-- [ ] Test invalid default exports and source-scoped import, execution, and render errors.
-- [ ] Test strict undefined handling and deterministic final-newline normalization.
-- [ ] Test dynamic block order before files and tree.
-- [ ] Test per-dynamic-block and combined-context byte limits.
-- [ ] Add pure Dioxus parser tests with inline Cargo metadata objects for direct, workspace, renamed, optional, and target-specific dependencies.
-- [ ] Add parser tests for direct features, alias-based forwarded features, recursive default features, feature cycles, platforms, full-stack, router, and no Dioxus dependency.
-- [ ] Add Dioxus renderer tests for every condition in the inclusion matrix.
-- [ ] Keep invalid UTF-8, binary image, selected-file sorting, tree, and metrics tests valid.
+- [x] Update `test/unit.test.ts`; do not create another unit-test file.
+- [x] Add one helper that narrows text blocks before `.text` access so image blocks remain type-safe.
+- [x] Preserve existing static preload assertions except where safe text-block narrowing is required.
+- [x] Add configuration tests for context inheritance, first-position deduplication, and ordering.
+- [x] Add tests for unsafe context names and missing convention entry files.
+- [x] Add a temporary package-owned context fixture with `facts.ts`, `index.md.njk`, and Markdown includes to test the generic convention without a registry.
+- [x] Test that an unselected temporary source is not imported.
+- [x] Test that a source returning `undefined` adds no block.
+- [x] Test invalid default exports and source-scoped import, execution, and render errors.
+- [x] Test strict undefined handling and deterministic final-newline normalization.
+- [x] Test dynamic block order before files and tree.
+- [x] Test per-dynamic-block and combined-context byte limits.
+- [x] Add pure Dioxus parser tests with inline Cargo metadata objects for direct, workspace, renamed, optional, and target-specific dependencies.
+- [x] Add parser tests for direct features, alias-based forwarded features, recursive default features, feature cycles, platforms, full-stack, router, and no Dioxus dependency.
+- [x] Add Dioxus renderer tests for every condition in the inclusion matrix.
+- [x] Keep invalid UTF-8, binary image, selected-file sorting, tree, and metrics tests valid.
 
 ### Acceptance checks
 
-- [ ] Generic source tests do not depend on the Dioxus implementation.
-- [ ] Dioxus parser tests do not execute Cargo.
-- [ ] Renderer tests prove both inclusion and exclusion for each conditional section.
-- [ ] Existing static behavior remains covered.
+- [x] Generic source tests do not depend on the Dioxus implementation.
+- [x] Dioxus parser tests do not execute Cargo.
+- [x] Renderer tests prove both inclusion and exclusion for each conditional section.
+- [x] Existing static behavior remains covered.
 
 ## Work Unit 9: Update the existing end-to-end test
 
