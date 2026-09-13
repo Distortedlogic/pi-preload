@@ -105,18 +105,7 @@ Desktop and mobile clients can require an explicit server URL. Supply it through
 
 Do not hard-code local development addresses into production clients.
 
-## 8. Set up the selected client feature
-
-Follow the matching feature setup file:
-
-- web: `context/web/DIOXUS_INITIAL_SETUP.md`
-- desktop: `context/desktop/DIOXUS_INITIAL_SETUP.md`
-- mobile: `context/mobile/DIOXUS_INITIAL_SETUP.md`
-- server: `context/server/DIOXUS_INITIAL_SETUP.md`
-
-Use the selected client feature's asset, styling, manifest, and CLI conventions.
-
-## 9. Keep the default server path
+## 8. Keep the default server path
 
 Use `dioxus::launch` for standard full-stack startup.
 
@@ -124,7 +113,7 @@ Use `dioxus::serve` and `dioxus::server::router(App)` only when required server 
 
 Do not start from raw Axum by default.
 
-## 10. Complete the setup check
+## 9. Complete the setup check
 
 Confirm that:
 
