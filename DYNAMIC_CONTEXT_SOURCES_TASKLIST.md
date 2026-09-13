@@ -131,28 +131,28 @@ type ContextFactsLoader = (input: {
 
 ## Work Unit 4: Integrate dynamic blocks without changing static collection
 
-- [ ] Collect selected dynamic sources in deduplicated configuration order.
-- [ ] Keep all existing static candidate discovery, binary checks, path sorting, file limits, decoding, and image block creation unchanged.
-- [ ] Place dynamic text blocks before all selected project-file blocks.
-- [ ] Keep selected project-file blocks in their current order.
-- [ ] Keep the filesystem tree as the final block.
-- [ ] Apply `MAX_FILE_BYTES` to each complete dynamic block, including its heading.
-- [ ] Count every complete dynamic block against `MAX_TOTAL_BYTES` with project-file context blocks.
-- [ ] Preserve the separate `MAX_TREE_BYTES` allowance for the final tree block.
-- [ ] Keep `result.count` as the selected project-file count.
-- [ ] Keep `result.bytes` as the loaded project-file byte count.
-- [ ] Keep current base64 image byte accounting.
-- [ ] Pass the collector signal through source loading and detection boundaries.
-- [ ] Check the signal between source collection, static collection, and tree collection.
+- [x] Collect selected dynamic sources in deduplicated configuration order.
+- [x] Keep all existing static candidate discovery, binary checks, path sorting, file limits, decoding, and image block creation unchanged.
+- [x] Place dynamic text blocks before all selected project-file blocks.
+- [x] Keep selected project-file blocks in their current order.
+- [x] Keep the filesystem tree as the final block.
+- [x] Apply `MAX_FILE_BYTES` to each complete dynamic block, including its heading.
+- [x] Count every complete dynamic block against `MAX_TOTAL_BYTES` with project-file context blocks.
+- [x] Preserve the separate `MAX_TREE_BYTES` allowance for the final tree block.
+- [x] Keep `result.count` as the selected project-file count.
+- [x] Keep `result.bytes` as the loaded project-file byte count.
+- [x] Keep current base64 image byte accounting.
+- [x] Pass the collector signal through source loading and detection boundaries.
+- [x] Check the signal between source collection, static collection, and tree collection.
 
 ### Acceptance checks
 
-- [ ] A preload with no `contexts` does not import a facts module, execute Cargo, or change block order.
-- [ ] A dynamic preload has context blocks, project-file blocks, and `TREE.txt` in that order.
-- [ ] Context names run once and keep configuration order.
-- [ ] Generated Markdown cannot bypass per-block or total context limits.
-- [ ] Dynamic output does not change selected-file metrics.
-- [ ] Existing static image and invalid UTF-8 behavior remains valid.
+- [x] A preload with no `contexts` does not import a facts module, execute Cargo, or change block order.
+- [x] A dynamic preload has context blocks, project-file blocks, and `TREE.txt` in that order.
+- [x] Context names run once and keep configuration order.
+- [x] Generated Markdown cannot bypass per-block or total context limits.
+- [x] Dynamic output does not change selected-file metrics.
+- [x] Existing static image and invalid UTF-8 behavior remains valid.
 
 ## Work Unit 5: Move the Dioxus context into one source directory
 

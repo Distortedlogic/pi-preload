@@ -219,7 +219,15 @@ async function loadContextSources(cwd: string, names: string[], contextDirectory
 	const blocks: TextContent[] = [];
 	for (const name of names) {
 		const source = await loadContextSource(cwd, name, contextRoot, signal);
-		if (source) blocks.push(renderContextSource(source, environment, signal));
+		if (!source) continue;
+		const block = renderContextSource(source, environment, signal);
+		const bytes = blockBytes(block);
+		if (bytes > MAX_FILE_BYTES) {
+			throw new Error(
+				`Context source ${source.name} is ${formatSize(bytes)}; the block limit is ${formatSize(MAX_FILE_BYTES)}.`,
+			);
+		}
+		blocks.push(block);
 	}
 	return blocks;
 }
@@ -351,7 +359,7 @@ export async function collectPreload(
 	}
 
 	const { files: patterns, contexts } = await loadConfiguration(resolve(cwd, config.path), presetDirectory, signal);
-	await loadContextSources(cwd, contexts, contextDirectory, signal);
+	const contextBlocks = await loadContextSources(cwd, contexts, contextDirectory, signal);
 	signal.throwIfAborted();
 	const includePatterns = patterns.filter((pattern) => !pattern.startsWith("!"));
 	const ignorePatterns = patterns.filter((pattern) => pattern.startsWith("!")).map((pattern) => pattern.slice(1));
@@ -440,13 +448,14 @@ export async function collectPreload(
 		},
 		{ concurrency: CONCURRENCY, signal },
 	);
-	const blocks = fileBlocks.flat();
+	const blocks: PreloadBlock[] = [...contextBlocks, ...fileBlocks.flat()];
 
-	const fileContextBytes = blocks.reduce((total, block) => total + blockBytes(block), 0);
-	if (fileContextBytes > MAX_TOTAL_BYTES) {
+	const preloadContextBytes = blocks.reduce((total, block) => total + blockBytes(block), 0);
+	if (preloadContextBytes > MAX_TOTAL_BYTES) {
 		throw new Error(`Context with headings is over ${formatSize(MAX_TOTAL_BYTES)}.`);
 	}
 
+	signal.throwIfAborted();
 	blocks.push(await collectFilesystemTree(cwd, ignorePatterns, signal));
 	signal.throwIfAborted();
 	const contextBytes = blocks.reduce((total, block) => total + blockBytes(block), 0);
