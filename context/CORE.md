@@ -1,121 +1,77 @@
-# Dioxus 0.7.10 General Architecture Rules
+# Dioxus Core Context
 
-1. **Treat Dioxus 0.7.10 as the source of truth**
-   - Use current repository patterns instead of older Dioxus knowledge.
-   - Do not generate old `Scope`, `cx.render`, `use_state`, or component-context APIs.
-   - Do not copy patterns from Dioxus 0.5 or 0.6 without verification.
+Target Dioxus version: **0.7.10**.
 
-2. **Use a Dioxus-first architecture**
-   - Start with `dioxus::launch`, `dioxus::serve`, and Dioxus full-stack APIs.
-   - Do not start by building an Axum application around Dioxus.
-   - Use a custom Axum router only when the application has a real non-Dioxus route, required middleware, or an unsupported extractor.
-   - Use Dioxus re-exports when server framework types are necessary.
+Use current APIs from this version. Do not generate old `Scope`, `cx.render`, `use_state`, or component-context patterns.
 
-3. **Use signals as lightweight reactive handles**
-   - Use `use_signal` for simple local state.
-   - Signals are copyable handles. Move them into handlers and async closures directly.
-   - Read with `signal()` or `.read()`.
-   - Change state with `.set()`, `.write()`, or supported mutation operations.
-   - Pass `ReadSignal<T>` when a child must stay reactive but must not change the value.
-   - Pass `WriteSignal<T>` or `Signal<T>` only when the child must change it.
-   - Do not add `Arc<Mutex<_>>`, channels, or React-style reducer code for ordinary client state.
+## Reactive ownership
 
-4. **Use the Store API for structured domain state**
-   - Use `#[derive(Store)]` and `use_store` when one state object has nested reactive data.
-   - Use generated store lenses for fine-grained subscriptions and changes.
-   - Add domain operations with `#[store] impl<Lens> Store<...>`.
-   - Keep related state and behavior in the store.
-   - Do not wrap every nested field in a separate signal.
-   - Do not repeatedly replace a complete struct when only one nested value changed.
-   - Keep `use_signal` for small state. A store is not the default for every component.
+- Signals are copyable reactive handles. Move them into handlers and async closures without clone scaffolding.
+- Read a signal with `signal()` or `.read()`. Change it with `.set()`, `.write()`, or its direct collection and assignment operations.
+- Accept `ReadSignal<T>` when a child or hook must stay reactive without write access.
+- Accept `WriteSignal<T>` or `Signal<T>` only when the receiver must mutate the value.
+- Plain values convert into `ReadSignal<T>` props, so a component can accept both reactive and constant input.
+- Use `use_memo` for derived reactive values. Use `use_effect` for effects, not duplicated derived state.
+- Use `use_context_provider` for tree-scoped shared signals. Use `GlobalSignal` and `GlobalMemo` only for state that is truly application-wide.
 
-5. **Use the correct derived-state and side-effect primitives**
-   - Use `use_memo` for values derived from reactive state.
-   - Use `use_effect` only for external side effects.
-   - Do not use an effect to copy one signal into another signal.
-   - Do not maintain derived state manually when a memo can calculate it.
+## Structured state
 
-6. **Choose async hooks by operation type**
-   - Use `use_loader` for data that rendering requires.
-   - A loader can suspend through `?` and work with SSR and hydration.
-   - Use `use_action` for explicit operations, mutations, and user-triggered requests.
-   - Use the action state through `call`, `pending`, `value`, `reset`, and `cancel`.
-   - Use `use_future` for a background task that does not produce a rendered result.
-   - Use `use_resource` only when its ordinary reactive resource behavior is specifically required.
-   - Do not default every asynchronous operation to `use_resource`, `spawn`, or custom loading signals.
+Use the Store API for nested domain state that needs fine-grained reactivity:
 
-7. **Use Suspense and error propagation**
-   - Put loader-based UI under `SuspenseBoundary`.
-   - Put recoverable component and asynchronous errors under `ErrorBoundary`.
-   - Use `?` to propagate pending and failed states to these boundaries.
-   - Do not manually reproduce loading and error state that the hook already provides.
+```rust
+#[derive(Store, Clone, PartialEq)]
+struct AppState {
+    items: Vec<Item>,
+}
 
-8. **Use HTTP verb server-function macros as the default RPC layer**
-   - Prefer `#[get]`, `#[post]`, `#[put]`, and `#[delete]`.
-   - Use `#[server]` only for an anonymous endpoint or a required compatibility case.
-   - Define path parameters, query parameters, request data, and server-only extractors through the macro contract.
-   - Let Dioxus generate the client function.
-   - Call that generated Rust function directly from client code.
-   - Let Dioxus register normal server functions automatically.
-   - Do not create a matching `reqwest` client for an internal server function.
-   - Use `reqwest` for external services, not for communication inside the same Dioxus application.
+let state = use_store(|| AppState { items: Vec::new() });
+```
 
-9. **Use Dioxus-native server errors and responses**
-   - Return Dioxus `Result<T>` for normal server-function work.
-   - Use `HttpError` for standard HTTP failures.
-   - Use a serializable typed error with `AsStatusCode` when client code must distinguish error variants.
-   - Use Dioxus full-stack request and response types before direct Axum types.
-   - Keep server-only implementation code behind the `server` feature.
+- Generated lenses such as `state.items()` subscribe and mutate at the selected field.
+- Add domain operations with `#[store] impl<Lens> Store<State, Lens>`.
+- Prefer a store over a signal containing a large nested model that is repeatedly replaced.
+- Keep small component state in `use_signal`.
 
-10. **Use a strict server-state selection order**
-    1. Use `std::sync::LazyLock<T>` for process-wide state with synchronous initialization.
-    2. Put an async-compatible lock inside the `LazyLock` when shared state needs asynchronous mutation.
-    3. Use `dioxus::fullstack::Lazy<T>` when initialization itself is asynchronous, such as database pool creation.
-    4. Use typed application state only when a server function needs injected server state.
-    5. Create a request extension only when a resource is genuinely specific to a request.
+## Async hooks
 
-    Do not use Axum extensions as the default place for global state. Do not build a custom router only to hold a database or shared collection.
+- `use_loader` is for data required by rendering. `use_loader(...)?` sends pending and failed state to Suspense and error boundaries and supports full-stack SSR transfer.
+- `use_action` is for explicit work and mutations. Its handle owns `call`, `pending`, `value`, `reset`, and `cancel` state.
+- `use_future` is for a component-lifetime background task without a returned UI value.
+- `use_resource` is for an ordinary reactive optional result when loader or action semantics are not wanted.
+- Async event handlers can return `Result`; failures propagate through Dioxus error handling.
 
-11. **Use the typed Dioxus WebSocket API**
-    - Define serializable client-event and server-event enums.
-    - Use `use_websocket` for the client connection.
-    - Return `Websocket<ClientEvent, ServerEvent>` from a server function.
-    - Accept `WebSocketOptions` and use `on_upgrade` for server processing.
-    - Use Dioxus `send`, `recv`, connection status, reconnection behavior, and built-in encodings.
-    - Do not use raw Axum WebSocket extraction.
-    - Do not create a manual JSON protocol when typed events are sufficient.
+## Components and props
 
-12. **Use the Dioxus asset pipeline**
-    - Declare bundled assets with `asset!`.
-    - Store reused assets in `Asset` constants.
-    - Use `Stylesheet` or the appropriate `document::*` component to attach them.
-    - Use project-rooted asset paths.
-    - Do not create a static-file endpoint for normal bundled assets.
-    - Do not use runtime filesystem loading for assets known at build time.
+- Use `#[component]` functions that return `Element`.
+- Use `EventHandler<T>` for callbacks passed as props.
+- `#[props(default)]`, `#[props(optional)]`, and `#[props(!optional)]` control generated prop-builder behavior. Do not assume that every `Option<T>` prop has the same builder requirement.
+- Use `#[props(extends = GlobalAttributes)]` and RSX spread syntax when a wrapper component must forward element attributes.
+- Use `children: Element` for component children.
 
-13. **Use Tailwind as the application styling system**
-    - Put a `tailwind.css` file at the project root.
-    - Let the Dioxus 0.7 CLI start and manage the Tailwind watcher.
-    - Include Rust source in Tailwind scanning:
+## RSX and routing
 
-      ```css
-      @import "tailwindcss";
-      @source "./src/**/*.{rs,html,css}";
-      ```
+- Rust `if`, `match`, `for`, iterators, and expressions work directly in `rsx!`.
+- Give mutable list entries stable keys.
+- Use a typed `Routable` enum with `Router`, `Link`, and `Outlet`.
+- Use typed path, query, hash, catch-all, layout, nest, and redirect declarations instead of parsing locations by hand.
+- Accept route values as `ReadSignal<T>` when reactive hooks must restart after navigation changes.
 
-    - Put styling in Tailwind classes or CSS assets.
-    - Rust can select classes based on reactive state.
-    - Do not generate CSS in Rust.
-    - Do not add TypeScript to manage styling.
-    - Do not edit generated Tailwind output.
+## Assets and styling
 
-14. **Keep one Rust full-stack model**
-    - Share request types, response types, errors, and server-function signatures between client and server.
-    - Use Cargo features such as `web`, `desktop`, `mobile`, and `server` for platform separation.
-    - Use `#[cfg(feature = "server")]` for server-only dependencies and implementations.
-    - Do not create a separate TypeScript frontend for behavior that Dioxus already supports.
+- `asset!` returns a build-managed `Asset`; keep reused assets in constants.
+- Attach CSS with `Stylesheet` and document metadata with `document::Title`, `document::Meta`, `document::Link`, and `document::Script`.
+- Use `#[css_module]` when scoped class names are required.
+- A root `tailwind.css` is detected by the Dioxus CLI. Its source scan must include Rust RSX:
 
-15. **Treat lower-level frameworks as exceptions**
-    - First check for a Dioxus hook, component, server-function type, stream type, asset API, or server API.
-    - Use direct Axum, JavaScript, manual HTTP, or custom runtime integration only when Dioxus has no suitable native operation.
-    - The presence of a specialized example does not make its lower-level approach the general default.
+```css
+@import "tailwindcss";
+@source "./src/**/*.{rs,html,css}";
+```
+
+- Put styling in Tailwind or CSS assets. Rust can select class names, but it must not generate the styling system.
+
+## Renderer-neutral element access
+
+Use `MountedData` for focus, dimensions, visibility, and scrolling. Use Dioxus event data and `HasFileData` instead of direct DOM access when these APIs cover the operation.
+
+Prefer a current Dioxus API before a lower-level browser, WebView, native, HTTP, or server-framework API.

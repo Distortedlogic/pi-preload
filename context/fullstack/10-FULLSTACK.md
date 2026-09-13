@@ -1,81 +1,32 @@
-# Dioxus 0.7.10 Full-Stack Rules
+# Full-Stack Runtime
 
-Use this context for work across the Dioxus client-server boundary. Do not use this file for a client-only application.
+## Generated server functions
 
-## 1. Keep one typed Rust boundary
+- Prefer `#[get]`, `#[post]`, `#[put]`, and `#[delete]`. Use `#[server]` only when its anonymous or compatibility form is required.
+- Path values, query values, request bodies, and server-only extractors are declared by the verb macro.
+- Server-only extractors are not part of the generated client signature.
+- Normal server functions register automatically.
+- Call the generated Rust function directly from client code. `reqwest` is for external endpoints.
+- Shared request, response, and error types remain visible to both builds; server implementation details use the `server` feature.
 
-Share server-function signatures, request types, response types, and typed errors between client and server builds.
+## Render data and actions
 
-Keep server-only implementations, dependencies, credentials, and resources behind the `server` feature.
+- `use_loader(...)?` suspends required render data, participates in SSR, serializes its result, and reuses that result during hydration.
+- `use_action` owns explicit operation state through `call`, `pending`, `value`, `reset`, and `cancel`.
+- `Loading::Pending` and `Loading::Failed` are available when loader state must be matched instead of propagated with `?`.
 
-Do not create a duplicate TypeScript client, REST schema, or request model.
+## Request and response conversion
 
-## 2. Use HTTP verb server functions
+- Arguments sent by generated clients implement serialization or Dioxus `IntoRequest`.
+- Return values implement deserialization or Dioxus `FromResponse`.
+- Use `FromResponse` with a matching server `IntoResponse` implementation for a custom wire response. Do not create a duplicate client API.
+- Use Dioxus wrappers such as `Form`, `SetHeader`, `TypedHeader`, `Redirect`, and stream types before raw Axum extraction.
 
-Prefer `#[get]`, `#[post]`, `#[put]`, and `#[delete]`.
+## HTTP failures
 
-Use macro paths and arguments for path values, query values, bodies, and server-only extractors. Let Dioxus generate the client operation and register normal endpoints.
+- Dioxus `Result<T>` provides the normal anyhow-style server-function path.
+- Use `HttpError` helpers for explicit HTTP status and message behavior.
+- A serializable custom error can implement `AsStatusCode` so its variant survives on the client with the correct status.
+- In an SSR error layout, `FullstackContext::commit_error_status` converts a captured error into the response status before rendering the error page.
 
-Use `#[server]` only for an anonymous endpoint or a required compatibility case.
-
-Call internal server functions directly from Rust client code. Use `reqwest` only for external services.
-
-## 3. Match async hooks to intent
-
-Use `use_loader` for server data required during rendering. Let `?` propagate pending and failed state to Suspense and error boundaries.
-
-Use `use_action` for explicit commands, mutations, and user-triggered requests. Use its pending, result, reset, and cancellation state.
-
-Do not build duplicate loading and error signals around these hooks.
-
-## 4. Keep SSR and hydration coherent
-
-Let Dioxus serialize loader data during server rendering and reuse it during hydration.
-
-Do not issue a second client fetch for data already transferred by the full-stack loader path.
-
-Keep browser-only behavior out of server rendering. Guard server-only and target-only code explicitly.
-
-## 5. Use Dioxus full-stack transport types
-
-Use Dioxus wrappers for forms, multipart data, headers, cookies, redirects, files, streams, server events, and WebSockets.
-
-Do not drop to raw Axum request handling when a Dioxus type represents the same operation.
-
-## 6. Keep state at the correct scope
-
-Use `std::sync::LazyLock` for synchronously initialized process state. Use `dioxus::fullstack::Lazy` when initialization itself is asynchronous.
-
-Use typed injected state only when server setup must provide a resource. Create a request extension only for request-specific state.
-
-Do not use request extensions as a global state container.
-
-## 7. Keep the server URL renderer-aware
-
-Web clients normally use the current origin.
-
-Desktop and mobile clients can require `dioxus::fullstack::set_server_url`. Supply the URL through deployment configuration.
-
-Do not hard-code a development server URL into a release client.
-
-## 8. Keep custom server integration narrow
-
-Use `dioxus::launch` for normal full-stack operation.
-
-Use `dioxus::serve` and `dioxus::server::router(app)` only for required middleware, injected state, or non-Dioxus routes.
-
-Keep normal application operations as Dioxus server functions even when a custom router is necessary.
-
-## 9. Use typed failures
-
-Use Dioxus `Result<T>` for normal work. Use `HttpError` for standard HTTP failures. Use a serializable error with `AsStatusCode` when client code must distinguish variants.
-
-Do not expose internal server details to the client.
-
-## 10. Keep trust on the server
-
-Validate identity, permission, input, ownership, limits, and external responses on the server.
-
-Client state can control presentation but cannot establish authorization.
-
-Keep secrets and trusted service calls out of web, desktop, and mobile client artifacts.
+Web clients normally use the current origin. Desktop and mobile clients can require `dioxus::fullstack::set_server_url`.

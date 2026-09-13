@@ -26,7 +26,7 @@ test("collectPreload reads cwd, parent, and absolute globs", async (t) => {
 	assert.ok(result);
 	assert.equal(result.count, 3);
 	assert.equal(result.bytes, Buffer.byteLength("insideparentabsolute"));
-	const text = result.blocks.map((block) => block.text);
+	const text = result.blocks.flatMap((block) => (block.type === "text" ? [block.text] : []));
 	assert.ok(text.includes("File: inside.txt\n\ninside"));
 	assert.ok(text.includes("File: ../parent.txt\n\nparent"));
 	assert.ok(text.includes(`File: ${absoluteFile}\n\nabsolute`));
@@ -55,7 +55,9 @@ test("collectPreload merges named presets with local globs", async (t) => {
 
 	assert.ok(result);
 	assert.equal(result.count, 2);
-	const paths = result.blocks.slice(0, -1).map((block) => block.text.slice(6, block.text.indexOf("\n\n")));
+	const paths = result.blocks
+		.slice(0, -1)
+		.flatMap((block) => (block.type === "text" ? [block.text.slice(6, block.text.indexOf("\n\n"))] : []));
 	assert.deepEqual(paths, ["local.txt", join(project, "src", "included.ts")]);
 });
 
@@ -79,10 +81,13 @@ test("collectPreload excludes ignored and lock files from content and tree", asy
 
 	assert.ok(result);
 	assert.equal(result.count, 2);
-	const paths = result.blocks.slice(0, -1).map((block) => block.text.slice(6, block.text.indexOf("\n\n")));
+	const paths = result.blocks
+		.slice(0, -1)
+		.flatMap((block) => (block.type === "text" ? [block.text.slice(6, block.text.indexOf("\n\n"))] : []));
 	assert.deepEqual(paths, ["CONTEXT_PRELOAD.yml", "source.ts"]);
 	const tree = await readFile(join(project, "TREE.txt"), "utf8");
-	assert.equal(result.blocks.at(-1)?.text, `File: TREE.txt\n\n${tree}`);
+	const treeBlock = result.blocks.at(-1);
+	assert.equal(treeBlock?.type === "text" ? treeBlock.text : undefined, `File: TREE.txt\n\n${tree}`);
 	assert.match(tree, /\.gitignore/);
 	assert.match(tree, /\.toolrc/);
 	assert.match(tree, /source\.ts/);
@@ -100,7 +105,7 @@ test("collectPreload rejects an invalid glob list", async (t) => {
 	await assert.rejects(collectPreload(project, AbortSignal.timeout(5_000)));
 });
 
-test("collectPreload rejects invalid UTF-8", async (t) => {
+test("collectPreload rejects an explicitly selected non-image binary", async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
 	t.after(async () => rm(project, { recursive: true, force: true }));
 	await Promise.all([
@@ -108,5 +113,5 @@ test("collectPreload rejects invalid UTF-8", async (t) => {
 		writeFile(join(project, "invalid.txt"), Uint8Array.from([0xff])),
 	]);
 
-	await assert.rejects(collectPreload(project, AbortSignal.timeout(5_000)), /not valid UTF-8 text/);
+	await assert.rejects(collectPreload(project, AbortSignal.timeout(5_000)), /explicitly selected binary file/);
 });

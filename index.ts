@@ -91,11 +91,7 @@ async function loadPatterns(
 }
 
 function exceededTreeAllocation(error: unknown) {
-	return (
-		error instanceof Error &&
-		"code" in error &&
-		error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"
-	);
+	return error instanceof Error && "code" in error && error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER";
 }
 
 async function renderFilesystemTree(cwd: string, inputPath: string, paths: string[], signal: AbortSignal) {
@@ -170,10 +166,7 @@ async function collectFilesystemTree(cwd: string, ignorePatterns: string[], sign
 			const expansionDepth = acceptedDepth + 1;
 			const includedPaths = new Set(acceptedPaths);
 			const folders = entries.filter(
-				(entry) =>
-					entry.isDirectory &&
-					entry.depth === 1 &&
-					!ON_DEMAND_TREE_DIRECTORIES.has(entry.path.toLowerCase()),
+				(entry) => entry.isDirectory && entry.depth === 1 && !ON_DEMAND_TREE_DIRECTORIES.has(entry.path.toLowerCase()),
 			);
 			for (const folder of folders) {
 				for (const entry of entries) {
@@ -239,9 +232,7 @@ export async function collectPreload(cwd: string, signal: AbortSignal, presetDir
 	signal.throwIfAborted();
 
 	const explicitFilePaths = new Set(
-		includePatterns
-			.filter((pattern) => !isDynamicPattern(pattern))
-			.map((pattern) => resolve(cwd, pattern)),
+		includePatterns.filter((pattern) => !isDynamicPattern(pattern)).map((pattern) => resolve(cwd, pattern)),
 	);
 	const binaryPaths = new Set<string>();
 	const selectedFiles = await pMap(
@@ -291,9 +282,7 @@ export async function collectPreload(cwd: string, signal: AbortSignal, presetDir
 			if (binaryPaths.has(path)) {
 				const fileType = await fileTypeFromBuffer(bytes);
 				if (!fileType?.mime.startsWith("image/")) {
-					throw new Error(
-						`${file.path} is an explicitly selected binary file, but Pi context supports only images.`,
-					);
+					throw new Error(`${file.path} is an explicitly selected binary file, but Pi context supports only images.`);
 				}
 				return [
 					{ type: "text", text: `File: ${file.path}` },
