@@ -135,8 +135,7 @@ files:
 	assert.equal(contextBlock?.type, "text");
 	if (contextBlock?.type !== "text") assert.fail("Expected Dioxus text context");
 	assert.match(contextBlock.text, /^Context: dioxus\n\n/);
-	assert.match(contextBlock.text, /Workspace packages: fixture-app/);
-	assert.match(contextBlock.text, /Default-path Dioxus features: fullstack, server, web/);
+	assert.doesNotMatch(contextBlock.text, /Detected Dioxus Project|Workspace packages|Dioxus features/);
 	assert.match(contextBlock.text, /# Dioxus Core Context/);
 	assert.match(contextBlock.text, /# Full-Stack Initial Setup/);
 	assert.match(contextBlock.text, /# Full-Stack Authentication/);

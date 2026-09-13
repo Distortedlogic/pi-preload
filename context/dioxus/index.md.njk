@@ -1,11 +1,3 @@
-# Detected Dioxus Project
-
-- Workspace packages: {{ facts.packageNames | join(", ") }}
-- Version requirements: {% if facts.versionRequirements.length %}{{ facts.versionRequirements | join(", ") }}{% else %}none{% endif %}
-- Declared Dioxus features: {% if facts.declaredFeatures.length %}{{ facts.declaredFeatures | join(", ") }}{% else %}none{% endif %}
-- Forwarded Dioxus features: {% if facts.forwardedFeatures.length %}{{ facts.forwardedFeatures | join(", ") }}{% else %}none{% endif %}
-- Default-path Dioxus features: {% if facts.defaultFeatures.length %}{{ facts.defaultFeatures | join(", ") }}{% else %}none{% endif %}
-
 {% include "dioxus/CORE.md" %}
 
 {% if facts.router %}

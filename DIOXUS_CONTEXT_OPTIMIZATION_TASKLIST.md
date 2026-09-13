@@ -159,26 +159,26 @@ The limits cover the accepted core rules and only the permitted deltas. The ambi
 
 **Depends on:** Work Unit 1
 
-- [ ] Extend the internal Cargo metadata types in `context/dioxus/facts.ts` with the package manifest path, workspace root, and workspace default members needed for package selection.
-- [ ] Replace workspace-wide capability aggregation with this deterministic selection order:
+- [x] Extend the internal Cargo metadata types in `context/dioxus/facts.ts` with the package manifest path, workspace root, and workspace default members needed for package selection.
+- [x] Replace workspace-wide capability aggregation with this deterministic selection order:
   1. Select the Dioxus package whose manifest directory is the deepest ancestor of `cwd`.
   2. If no package contains `cwd`, select the only Dioxus package in `workspace_default_members`.
   3. If that is not unique, select the only Dioxus workspace package.
   4. If selection is still ambiguous, emit core-only facts and do not infer router, full-stack, or renderer capabilities.
-- [ ] Keep direct normal `dioxus-router` dependency detection for the selected package.
-- [ ] Treat only these Dioxus features as active facts:
+- [x] Keep direct normal `dioxus-router` dependency detection for the selected package.
+- [x] Treat only these Dioxus features as active facts:
   - features declared directly on the selected package's normal `dioxus` dependency;
   - forwarded features reachable from the selected package's `default` feature graph.
-- [ ] Do not treat every forwarded feature declaration as active.
-- [ ] Remove rendered-data fields that only describe the project:
+- [x] Do not treat every forwarded feature declaration as active.
+- [x] Remove rendered-data fields that only describe the project:
   - `packageNames`;
   - `versionRequirements` when it does not control compatibility;
   - `declaredFeatures`;
   - `forwardedFeatures`;
   - `defaultFeatures`.
-- [ ] Keep only the facts required by template conditions, such as `router`, `fullstack`, and conservative default-path renderers.
-- [ ] Preserve abort handling, bounded Cargo output, and actionable Cargo errors.
-- [ ] Update parser cases in the existing unit test suite before and with the implementation. Cover nested packages, one default member, one workspace member, ambiguous workspaces, direct features, default-forwarded features, and inactive forwarded features.
+- [x] Keep only the facts required by template conditions, such as `router`, `fullstack`, and conservative default-path renderers.
+- [x] Preserve abort handling, bounded Cargo output, and actionable Cargo errors.
+- [x] Update parser cases in the existing unit test suite before and with the implementation. Cover nested packages, one default member, one workspace member, ambiguous workspaces, direct features, default-forwarded features, and inactive forwarded features.
 
 ### Exit Criteria
 

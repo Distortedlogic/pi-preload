@@ -341,141 +341,192 @@ test("collectPreload applies dynamic block and combined context limits", async (
 	});
 });
 
-test("parseDioxusMetadata detects workspace Dioxus dependency forms", () => {
-	const requirements = ["^0.7", "~0.7", "=0.7.10", ">=0.7", "0.7"];
+test("parseDioxusMetadata selects the deepest package that contains cwd", () => {
+	const workspaceRoot = join(tmpdir(), "dioxus-selection");
 	const metadata: Parameters<typeof parseDioxusMetadata>[0] = {
 		packages: [
 			{
-				id: "direct",
-				name: "direct-app",
-				dependencies: [{ name: "dioxus", req: requirements[0], kind: null, features: ["web"] }],
-				features: {},
-			},
-			{
-				id: "workspace",
-				name: "workspace-app",
-				dependencies: [{ name: "dioxus", req: requirements[1], kind: null, features: ["server"] }],
-				features: {},
-			},
-			{
-				id: "renamed",
-				name: "renamed-app",
-				dependencies: [{ name: "dioxus", rename: "dx", req: requirements[2], kind: null, features: ["desktop"] }],
-				features: { desktop: ["dx/desktop"] },
-			},
-			{
-				id: "optional",
-				name: "optional-app",
-				dependencies: [{ name: "dioxus", req: requirements[3], kind: null, optional: true, features: ["mobile"] }],
-				features: {},
-			},
-			{
-				id: "targeted",
-				name: "targeted-app",
+				id: "root-app",
+				name: "root-app",
+				manifest_path: join(workspaceRoot, "apps", "root", "Cargo.toml"),
 				dependencies: [
-					{
-						name: "dioxus",
-						req: requirements[4],
-						kind: null,
-						target: 'cfg(target_arch = "wasm32")',
-						features: ["native"],
-					},
+					{ name: "dioxus", kind: null, features: ["fullstack", "web"] },
+					{ name: "dioxus-router", kind: null },
 				],
 				features: {},
 			},
 			{
-				id: "outside",
-				name: "outside-app",
-				dependencies: [{ name: "dioxus", req: "*", kind: null, features: ["fullstack"] }],
-				features: {},
+				id: "nested-app",
+				name: "nested-app",
+				manifest_path: join(workspaceRoot, "apps", "root", "nested", "Cargo.toml"),
+				dependencies: [{ name: "dioxus", kind: null, features: ["desktop"] }],
+				features: { inactive: ["dioxus/mobile"] },
 			},
 		],
-		workspace_members: ["direct", "workspace", "renamed", "optional", "targeted"],
+		workspace_members: ["root-app", "nested-app"],
+		workspace_default_members: ["root-app"],
+		workspace_root: workspaceRoot,
 	};
 
-	const facts = parseDioxusMetadata(metadata);
-
-	assert.ok(facts);
-	assert.deepEqual(
-		facts.packageNames,
-		["direct-app", "workspace-app", "renamed-app", "optional-app", "targeted-app"].sort(),
-	);
-	assert.deepEqual(facts.versionRequirements, requirements.sort());
-	assert.deepEqual(facts.declaredFeatures, ["desktop", "mobile", "native", "server", "web"]);
-	assert.deepEqual(facts.forwardedFeatures, ["desktop"]);
-	assert.deepEqual(facts.defaultFeatures, []);
-	assert.deepEqual(facts.platforms, ["desktop", "mobile", "native", "server", "web"]);
-	assert.equal(facts.fullstack, false);
-	assert.equal(facts.router, false);
+	assert.deepEqual(parseDioxusMetadata(metadata, join(workspaceRoot, "apps", "root", "nested", "src")), {
+		platforms: ["desktop"],
+		fullstack: false,
+		router: false,
+	});
 });
 
-test("parseDioxusMetadata separates direct, forwarded, and recursive default features", () => {
-	const metadata = {
+test("parseDioxusMetadata selects the only Dioxus default member outside package directories", () => {
+	const workspaceRoot = join(tmpdir(), "dioxus-default-member");
+	const metadata: Parameters<typeof parseDioxusMetadata>[0] = {
+		packages: [
+			{
+				id: "web-app",
+				name: "web-app",
+				manifest_path: join(workspaceRoot, "apps", "web", "Cargo.toml"),
+				dependencies: [{ name: "dioxus", kind: null, features: ["web"] }],
+			},
+			{
+				id: "mobile-app",
+				name: "mobile-app",
+				manifest_path: join(workspaceRoot, "apps", "mobile", "Cargo.toml"),
+				dependencies: [{ name: "dioxus", kind: null, features: ["mobile"] }],
+			},
+		],
+		workspace_members: ["web-app", "mobile-app"],
+		workspace_default_members: ["mobile-app"],
+		workspace_root: workspaceRoot,
+	};
+
+	assert.deepEqual(parseDioxusMetadata(metadata, join(workspaceRoot, "tools")), {
+		platforms: ["mobile"],
+		fullstack: false,
+		router: false,
+	});
+});
+
+test("parseDioxusMetadata selects the only Dioxus workspace package", () => {
+	const workspaceRoot = join(tmpdir(), "dioxus-only-member");
+	const metadata: Parameters<typeof parseDioxusMetadata>[0] = {
+		packages: [
+			{
+				id: "server-app",
+				name: "server-app",
+				manifest_path: join(workspaceRoot, "apps", "server", "Cargo.toml"),
+				dependencies: [{ name: "dioxus", kind: null, features: ["server"] }],
+			},
+			{
+				id: "utility",
+				name: "utility",
+				manifest_path: join(workspaceRoot, "crates", "utility", "Cargo.toml"),
+				dependencies: [],
+			},
+		],
+		workspace_members: ["server-app", "utility"],
+		workspace_default_members: [],
+		workspace_root: workspaceRoot,
+	};
+
+	assert.deepEqual(parseDioxusMetadata(metadata, join(workspaceRoot, "tools")), {
+		platforms: ["server"],
+		fullstack: false,
+		router: false,
+	});
+});
+
+test("parseDioxusMetadata returns core-only facts for an ambiguous workspace", () => {
+	const workspaceRoot = join(tmpdir(), "dioxus-ambiguous");
+	const metadata: Parameters<typeof parseDioxusMetadata>[0] = {
+		packages: [
+			{
+				id: "web-app",
+				name: "web-app",
+				manifest_path: join(workspaceRoot, "apps", "web", "Cargo.toml"),
+				dependencies: [
+					{ name: "dioxus", kind: null, features: ["web"] },
+					{ name: "dioxus-router", kind: null },
+				],
+			},
+			{
+				id: "desktop-app",
+				name: "desktop-app",
+				manifest_path: join(workspaceRoot, "apps", "desktop", "Cargo.toml"),
+				dependencies: [{ name: "dioxus", kind: null, features: ["desktop", "fullstack"] }],
+			},
+		],
+		workspace_members: ["web-app", "desktop-app"],
+		workspace_default_members: ["web-app", "desktop-app"],
+		workspace_root: workspaceRoot,
+	};
+
+	assert.deepEqual(parseDioxusMetadata(metadata, workspaceRoot), {
+		platforms: [],
+		fullstack: false,
+		router: false,
+	});
+});
+
+test("parseDioxusMetadata uses direct and default-reachable features only", () => {
+	const workspaceRoot = join(tmpdir(), "dioxus-features");
+	const metadata: Parameters<typeof parseDioxusMetadata>[0] = {
 		packages: [
 			{
 				id: "app",
 				name: "app",
-				dependencies: [{ name: "dioxus", rename: "dx", req: "^0.7", kind: null, features: ["fullstack", "web"] }],
+				manifest_path: join(workspaceRoot, "app", "Cargo.toml"),
+				dependencies: [
+					{ name: "dioxus", rename: "dx", kind: null, features: ["web"] },
+					{ name: "dioxus", kind: "dev", features: ["native"] },
+					{ name: "dioxus-router", kind: "dev" },
+				],
 				features: {
 					default: ["ui"],
-					ui: ["dx/mobile", "nested"],
-					nested: ["cycle", "dx?/server"],
-					cycle: ["nested"],
-					extra: ["dx/native"],
-					routing: ["dx/router"],
+					ui: ["dx?/server", "nested"],
+					nested: ["cycle", "dx/fullstack"],
+					cycle: ["ui"],
+					inactive: ["dx/desktop", "dx/mobile", "dx/native", "dx/router"],
 				},
 			},
 		],
 		workspace_members: ["app"],
+		workspace_default_members: ["app"],
+		workspace_root: workspaceRoot,
 	};
 
-	const facts = parseDioxusMetadata(metadata);
-
-	assert.ok(facts);
-	assert.deepEqual(facts.declaredFeatures, ["fullstack", "web"]);
-	assert.deepEqual(facts.forwardedFeatures, ["mobile", "native", "router", "server"]);
-	assert.deepEqual(facts.defaultFeatures, ["mobile", "server"]);
-	assert.deepEqual(facts.platforms, ["mobile", "native", "server", "web"]);
-	assert.equal(facts.fullstack, true);
-	assert.equal(facts.router, true);
-	assert.deepEqual(facts, parseDioxusMetadata(structuredClone(metadata)));
-
-	const dependencyRouter = parseDioxusMetadata({
-		packages: [
-			{
-				id: "router-app",
-				name: "router-app",
-				dependencies: [
-					{ name: "dioxus", req: "^0.7", kind: null, features: [] },
-					{ name: "dioxus-router", req: "^0.7", kind: null, features: [] },
-				],
-				features: {},
-			},
-		],
-		workspace_members: ["router-app"],
+	assert.deepEqual(parseDioxusMetadata(metadata, join(workspaceRoot, "app", "src")), {
+		platforms: ["server", "web"],
+		fullstack: true,
+		router: false,
 	});
-	assert.equal(dependencyRouter?.router, true);
+
+	metadata.packages[0].dependencies?.push({ name: "dioxus-router", kind: null });
+	assert.equal(parseDioxusMetadata(metadata, workspaceRoot)?.router, true);
 });
 
 test("parseDioxusMetadata returns undefined without a workspace Dioxus dependency", () => {
+	const workspaceRoot = join(tmpdir(), "no-dioxus");
 	assert.equal(
-		parseDioxusMetadata({
-			packages: [
-				{
-					id: "app",
-					name: "app",
-					dependencies: [{ name: "dioxus-router", req: "^0.7", kind: null, features: [] }],
-					features: {},
-				},
-				{
-					id: "outside",
-					name: "outside",
-					dependencies: [{ name: "dioxus", req: "^0.7", kind: null, features: ["web"] }],
-					features: {},
-				},
-			],
-			workspace_members: ["app"],
-		}),
+		parseDioxusMetadata(
+			{
+				packages: [
+					{
+						id: "app",
+						name: "app",
+						manifest_path: join(workspaceRoot, "app", "Cargo.toml"),
+						dependencies: [{ name: "dioxus-router", kind: null }],
+					},
+					{
+						id: "outside",
+						name: "outside",
+						manifest_path: join(workspaceRoot, "outside", "Cargo.toml"),
+						dependencies: [{ name: "dioxus", kind: null, features: ["web"] }],
+					},
+				],
+				workspace_members: ["app"],
+				workspace_default_members: ["app"],
+				workspace_root: workspaceRoot,
+			},
+			join(workspaceRoot, "app"),
+		),
 		undefined,
 	);
 });
@@ -485,11 +536,6 @@ const dioxusEnvironment = new nunjucks.Environment(
 	{ autoescape: false, throwOnUndefined: true },
 );
 const dioxusBaseFacts: DioxusFacts = {
-	packageNames: ["app"],
-	versionRequirements: ["^0.7"],
-	declaredFeatures: [],
-	forwardedFeatures: [],
-	defaultFeatures: [],
 	platforms: [],
 	fullstack: false,
 	router: false,
@@ -499,17 +545,11 @@ const dioxusContextScenarios = {
 	router: { ...dioxusBaseFacts, router: true },
 	fullstackWebServer: {
 		...dioxusBaseFacts,
-		declaredFeatures: ["fullstack", "server", "web"],
-		defaultFeatures: ["fullstack", "server", "web"],
 		platforms: ["server", "web"],
 		fullstack: true,
 	},
 	unrelatedWorkspace: {
 		...dioxusBaseFacts,
-		packageNames: ["desktop-app", "mobile-app", "web-server-app"],
-		declaredFeatures: ["desktop", "fullstack", "mobile", "server", "web"],
-		forwardedFeatures: ["router"],
-		defaultFeatures: ["desktop", "fullstack", "mobile", "server", "web"],
 		platforms: ["desktop", "mobile", "server", "web"],
 		fullstack: true,
 		router: true,
@@ -532,15 +572,15 @@ function renderDioxusContext(facts: DioxusFacts) {
 	return dioxusEnvironment.render("dioxus/index.md.njk", { facts });
 }
 
-test("locks representative Dioxus context baseline byte counts and budgets", () => {
+test("records representative Dioxus context baseline byte counts and budgets", () => {
 	const renderedBytes = Object.fromEntries(
 		Object.entries(dioxusContextScenarios).map(([name, facts]) => [
 			name,
 			Buffer.byteLength(renderDioxusContext(facts)),
 		]),
-	);
-	assert.deepEqual(renderedBytes, dioxusContextBaselineBytes);
+	) as Record<keyof typeof dioxusContextScenarios, number>;
 	for (const name of Object.keys(dioxusContextScenarios) as Array<keyof typeof dioxusContextScenarios>) {
+		assert.ok(renderedBytes[name] <= dioxusContextBaselineBytes[name]);
 		assert.ok(dioxusContextByteBudgets[name] < dioxusContextBaselineBytes[name]);
 	}
 });
@@ -574,11 +614,7 @@ test("Dioxus template follows every inclusion-matrix condition", () => {
 	];
 	const allConditionalHeadings = groups.flatMap((group) => group.headings);
 	const coreOnly = render();
-	assert.match(coreOnly, /# Detected Dioxus Project/);
-	assert.match(coreOnly, /Workspace packages: app/);
-	assert.match(coreOnly, /Version requirements: \^0\.7/);
-	assert.match(coreOnly, /Declared Dioxus features: none/);
-	assert.match(coreOnly, /Default-path Dioxus features: none/);
+	assert.doesNotMatch(coreOnly, /# Detected Dioxus Project|Workspace packages|Dioxus features/);
 	assert.match(coreOnly, /# Dioxus Core Context/);
 	for (const heading of allConditionalHeadings) assert.ok(!coreOnly.includes(heading));
 

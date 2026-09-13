@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
 const MAX_METADATA_BYTES = 16 * 1024 * 1024;
@@ -8,11 +9,6 @@ const execFileAsync = promisify(execFile);
 type DioxusPlatform = (typeof DIOXUS_PLATFORMS)[number];
 
 export interface DioxusFacts {
-	packageNames: string[];
-	versionRequirements: string[];
-	declaredFeatures: string[];
-	forwardedFeatures: string[];
-	defaultFeatures: string[];
 	platforms: DioxusPlatform[];
 	fullstack: boolean;
 	router: boolean;
@@ -21,16 +17,14 @@ export interface DioxusFacts {
 interface CargoDependencyMetadata {
 	name: string;
 	rename?: string | null;
-	req?: string;
 	kind?: string | null;
 	features?: string[];
-	optional?: boolean;
-	target?: string | null;
 }
 
 interface CargoPackageMetadata {
 	id: string;
 	name: string;
+	manifest_path: string;
 	dependencies?: CargoDependencyMetadata[];
 	features?: Record<string, string[]>;
 }
@@ -38,6 +32,15 @@ interface CargoPackageMetadata {
 interface CargoMetadata {
 	packages: CargoPackageMetadata[];
 	workspace_members: string[];
+	workspace_default_members: string[];
+	workspace_root: string;
+}
+
+interface DioxusPackageMetadata {
+	packageMetadata: CargoPackageMetadata;
+	dependencies: CargoDependencyMetadata[];
+	dioxusDependencies: CargoDependencyMetadata[];
+	manifestDirectory: string;
 }
 
 function isNormalDependency(dependency: CargoDependencyMetadata) {
@@ -76,59 +79,81 @@ function collectDefaultDioxusFeatures(features: Record<string, string[]>, depend
 	return collected;
 }
 
-function sorted(values: Set<string>) {
-	return [...values].sort();
+function isPathInsideOrEqual(directory: string, path: string) {
+	const relativePath = relative(directory, path);
+	return (
+		relativePath === "" || (relativePath !== ".." && !relativePath.startsWith(`..${sep}`) && !isAbsolute(relativePath))
+	);
 }
 
-export function parseDioxusMetadata(metadata: CargoMetadata): DioxusFacts | undefined {
-	const workspaceMembers = new Set(metadata.workspace_members);
-	const packageNames = new Set<string>();
-	const versionRequirements = new Set<string>();
-	const declaredFeatures = new Set<string>();
-	const forwardedFeatures = new Set<string>();
-	const defaultFeatures = new Set<string>();
-	let hasRouterDependency = false;
+function pathDepth(path: string) {
+	return resolve(path).split(sep).filter(Boolean).length;
+}
 
+function collectDioxusPackages(metadata: CargoMetadata) {
+	const workspaceMembers = new Set(metadata.workspace_members);
+	const workspaceRoot = resolve(metadata.workspace_root);
+	const packages: DioxusPackageMetadata[] = [];
 	for (const packageMetadata of metadata.packages) {
 		if (!workspaceMembers.has(packageMetadata.id)) continue;
 		const dependencies = (packageMetadata.dependencies ?? []).filter(isNormalDependency);
-		if (dependencies.some((dependency) => dependency.name === "dioxus-router")) {
-			hasRouterDependency = true;
-		}
-
 		const dioxusDependencies = dependencies.filter((dependency) => dependency.name === "dioxus");
 		if (dioxusDependencies.length === 0) continue;
-		packageNames.add(packageMetadata.name);
+		packages.push({
+			packageMetadata,
+			dependencies,
+			dioxusDependencies,
+			manifestDirectory: dirname(resolve(workspaceRoot, packageMetadata.manifest_path)),
+		});
+	}
+	return packages;
+}
 
-		const dependencyKeys = new Set(dioxusDependencies.map(dependencyKey));
-		for (const dependency of dioxusDependencies) {
-			if (dependency.req) versionRequirements.add(dependency.req);
-			for (const feature of dependency.features ?? []) declaredFeatures.add(feature);
-		}
-
-		const packageFeatures = packageMetadata.features ?? {};
-		for (const entries of Object.values(packageFeatures)) {
-			for (const entry of entries) {
-				const forwarded = forwardedDioxusFeature(entry, dependencyKeys);
-				if (forwarded) forwardedFeatures.add(forwarded);
-			}
-		}
-		for (const feature of collectDefaultDioxusFeatures(packageFeatures, dependencyKeys)) {
-			defaultFeatures.add(feature);
-		}
+function selectDioxusPackage(
+	packages: DioxusPackageMetadata[],
+	metadata: CargoMetadata,
+	cwd: string,
+): DioxusPackageMetadata | undefined {
+	const workspaceRoot = resolve(metadata.workspace_root);
+	const resolvedCwd = resolve(workspaceRoot, cwd);
+	const containingPackages = packages.filter((candidate) =>
+		isPathInsideOrEqual(candidate.manifestDirectory, resolvedCwd),
+	);
+	if (containingPackages.length > 0) {
+		const maximumDepth = Math.max(...containingPackages.map((candidate) => pathDepth(candidate.manifestDirectory)));
+		const deepestPackages = containingPackages.filter(
+			(candidate) => pathDepth(candidate.manifestDirectory) === maximumDepth,
+		);
+		return deepestPackages.length === 1 ? deepestPackages[0] : undefined;
 	}
 
-	if (packageNames.size === 0) return;
-	const capabilities = new Set([...declaredFeatures, ...forwardedFeatures, ...defaultFeatures]);
+	const defaultMembers = new Set(metadata.workspace_default_members);
+	const defaultPackages = packages.filter((candidate) => defaultMembers.has(candidate.packageMetadata.id));
+	if (defaultPackages.length === 1) return defaultPackages[0];
+	return packages.length === 1 ? packages[0] : undefined;
+}
+
+export function parseDioxusMetadata(
+	metadata: CargoMetadata,
+	cwd: string = metadata.workspace_root,
+): DioxusFacts | undefined {
+	const packages = collectDioxusPackages(metadata);
+	if (packages.length === 0) return;
+	const selectedPackage = selectDioxusPackage(packages, metadata, cwd);
+	if (!selectedPackage) return { platforms: [], fullstack: false, router: false };
+
+	const dependencyKeys = new Set(selectedPackage.dioxusDependencies.map(dependencyKey));
+	const capabilities = new Set(selectedPackage.dioxusDependencies.flatMap((dependency) => dependency.features ?? []));
+	for (const feature of collectDefaultDioxusFeatures(selectedPackage.packageMetadata.features ?? {}, dependencyKeys)) {
+		capabilities.add(feature);
+	}
+
 	return {
-		packageNames: sorted(packageNames),
-		versionRequirements: sorted(versionRequirements),
-		declaredFeatures: sorted(declaredFeatures),
-		forwardedFeatures: sorted(forwardedFeatures),
-		defaultFeatures: sorted(defaultFeatures),
 		platforms: DIOXUS_PLATFORMS.filter((platform) => capabilities.has(platform)),
 		fullstack: capabilities.has("fullstack"),
-		router: hasRouterDependency || capabilities.has("router"),
+		router:
+			selectedPackage.dependencies.some((dependency) => dependency.name === "dioxus-router") ||
+			capabilities.has("router"),
 	};
 }
 
@@ -169,5 +194,5 @@ export default async function loadDioxusFacts(input: {
 	} catch (error) {
 		throw new Error(`Could not parse Cargo metadata JSON: ${errorDetail(error)}`, { cause: error });
 	}
-	return parseDioxusMetadata(metadata);
+	return parseDioxusMetadata(metadata, input.cwd);
 }
