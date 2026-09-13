@@ -4,8 +4,11 @@ import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, formatSize } from "@earendil-works/pi-coding-agent";
-import { globby } from "globby";
+import { fileTypeFromBuffer } from "file-type";
+import { globby, isDynamicPattern } from "globby";
+import { isBinaryFile } from "isbinaryfile";
 import pMap from "p-map";
 import { readYamlFile } from "read-yaml-file";
 import { Type } from "typebox";
@@ -56,6 +59,11 @@ const CONCURRENCY = 8;
 const DEADLINE_MS = 30_000;
 const DEFAULT_PRESET_DIRECTORY = fileURLToPath(new URL("./presets/", import.meta.url));
 const execFileAsync = promisify(execFile);
+type PreloadBlock = TextContent | ImageContent;
+
+function blockBytes(block: PreloadBlock) {
+	return block.type === "text" ? Buffer.byteLength(block.text) : Buffer.byteLength(block.data);
+}
 
 async function loadPatterns(
 	configPath: string,
@@ -215,7 +223,7 @@ export async function collectPreload(cwd: string, signal: AbortSignal, presetDir
 	const includePatterns = patterns.filter((pattern) => !pattern.startsWith("!"));
 	const ignorePatterns = patterns.filter((pattern) => pattern.startsWith("!")).map((pattern) => pattern.slice(1));
 
-	const files =
+	const candidates =
 		includePatterns.length === 0
 			? []
 			: await globby(includePatterns, {
@@ -228,6 +236,26 @@ export async function collectPreload(cwd: string, signal: AbortSignal, presetDir
 					objectMode: true,
 					stats: true,
 				});
+	signal.throwIfAborted();
+
+	const explicitFilePaths = new Set(
+		includePatterns
+			.filter((pattern) => !isDynamicPattern(pattern))
+			.map((pattern) => resolve(cwd, pattern)),
+	);
+	const binaryPaths = new Set<string>();
+	const selectedFiles = await pMap(
+		candidates,
+		async (file) => {
+			const path = resolve(cwd, file.path);
+			if (!(await isBinaryFile(path))) return file;
+			if (!explicitFilePaths.has(path)) return;
+			binaryPaths.add(path);
+			return file;
+		},
+		{ concurrency: CONCURRENCY, signal },
+	);
+	const files = selectedFiles.filter((file) => file !== undefined);
 	signal.throwIfAborted();
 	if (files.length > MAX_FILES) throw new Error(`Preload has more than ${MAX_FILES} files.`);
 	files.sort((a, b) => dirname(a.path).localeCompare(dirname(b.path)) || a.path.localeCompare(b.path));
@@ -247,10 +275,11 @@ export async function collectPreload(cwd: string, signal: AbortSignal, presetDir
 
 	let loadedBytes = 0;
 	const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
-	const blocks = await pMap(
+	const fileBlocks = await pMap(
 		files,
-		async (file) => {
-			const bytes = await readFile(resolve(cwd, file.path), { signal });
+		async (file): Promise<PreloadBlock[]> => {
+			const path = resolve(cwd, file.path);
+			const bytes = await readFile(path, { signal });
 			if (bytes.length > MAX_FILE_BYTES) {
 				throw new Error(`${file.path} grew beyond ${formatSize(MAX_FILE_BYTES)}.`);
 			}
@@ -259,25 +288,39 @@ export async function collectPreload(cwd: string, signal: AbortSignal, presetDir
 				throw new Error(`Selected files grew beyond ${formatSize(MAX_TOTAL_BYTES)}.`);
 			}
 
+			if (binaryPaths.has(path)) {
+				const fileType = await fileTypeFromBuffer(bytes);
+				if (!fileType?.mime.startsWith("image/")) {
+					throw new Error(
+						`${file.path} is an explicitly selected binary file, but Pi context supports only images.`,
+					);
+				}
+				return [
+					{ type: "text", text: `File: ${file.path}` },
+					{ type: "image", data: bytes.toString("base64"), mimeType: fileType.mime },
+				];
+			}
+
 			let text: string;
 			try {
 				text = decoder.decode(bytes);
 			} catch {
 				throw new Error(`${file.path} is not valid UTF-8 text.`);
 			}
-			return { type: "text" as const, text: `File: ${file.path}\n\n${text}` };
+			return [{ type: "text", text: `File: ${file.path}\n\n${text}` }];
 		},
 		{ concurrency: CONCURRENCY, signal },
 	);
+	const blocks = fileBlocks.flat();
 
-	const fileContextBytes = blocks.reduce((total, block) => total + Buffer.byteLength(block.text), 0);
+	const fileContextBytes = blocks.reduce((total, block) => total + blockBytes(block), 0);
 	if (fileContextBytes > MAX_TOTAL_BYTES) {
 		throw new Error(`Context with headings is over ${formatSize(MAX_TOTAL_BYTES)}.`);
 	}
 
 	blocks.push(await collectFilesystemTree(cwd, ignorePatterns, signal));
 	signal.throwIfAborted();
-	const contextBytes = blocks.reduce((total, block) => total + Buffer.byteLength(block.text), 0);
+	const contextBytes = blocks.reduce((total, block) => total + blockBytes(block), 0);
 	if (contextBytes > MAX_TOTAL_BYTES + MAX_TREE_BYTES) {
 		throw new Error(`Context with filesystem tree is over ${formatSize(MAX_TOTAL_BYTES + MAX_TREE_BYTES)}.`);
 	}
