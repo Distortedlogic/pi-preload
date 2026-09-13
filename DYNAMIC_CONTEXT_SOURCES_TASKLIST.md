@@ -320,13 +320,13 @@ type ContextFactsLoader = (input: {
 
 ## Work Unit 10: Package and document the convention
 
-- [ ] Confirm that the existing `package.json` `files` entry for `context` includes facts loaders, templates, and Markdown fragments.
-- [ ] Do not add a duplicate package-files entry for `context`.
-- [ ] Confirm that the existing `presets` entry includes `presets/dioxus-rust.yml`.
-- [ ] Update dependency and development-dependency metadata with exact runtime versions where required by repository policy.
-- [ ] Update `package-lock.json` consistently.
-- [ ] Update `README.md` with the `contexts` field and `dioxus-rust` preset.
-- [ ] Add this minimal project example:
+- [x] Confirm that the existing `package.json` `files` entry for `context` includes facts loaders, templates, and Markdown fragments.
+- [x] Do not add a duplicate package-files entry for `context`.
+- [x] Confirm that the existing `presets` entry includes `presets/dioxus-rust.yml`.
+- [x] Update dependency and development-dependency metadata with exact runtime versions where required by repository policy.
+- [x] Update `package-lock.json` consistently.
+- [x] Update `README.md` with the `contexts` field and `dioxus-rust` preset.
+- [x] Add this minimal project example:
 
   ```yaml
   extends:
@@ -338,18 +338,18 @@ type ContextFactsLoader = (input: {
     - "tailwind.css"
   ```
 
-- [ ] State that Dioxus detection reports repository-declared capabilities, not command-line active features.
-- [ ] State that Cargo must be available when `dioxus` is selected.
-- [ ] State that context modules, templates, and fragments are package-owned and cannot come from the project.
-- [ ] Document the `context/<name>/facts.ts` and `context/<name>/index.md.njk` convention for future package maintainers.
-- [ ] State that a future source needs only its self-contained directory and an optional preset, with no central registration edit.
-- [ ] Apply one consistent package version increase to `package.json` and `package-lock.json` if this additive feature is released.
+- [x] State that Dioxus detection reports repository-declared capabilities, not command-line active features.
+- [x] State that Cargo must be available when `dioxus` is selected.
+- [x] State that context modules, templates, and fragments are package-owned and cannot come from the project.
+- [x] Document the `context/<name>/facts.ts` and `context/<name>/index.md.njk` convention for future package maintainers.
+- [x] State that a future source needs only its self-contained directory and an optional preset, with no central registration edit.
+- [x] Apply one consistent package version increase to `package.json` and `package-lock.json` if this additive feature is released.
 
 ### Acceptance checks
 
-- [ ] `npm pack --dry-run` lists `presets/dioxus-rust.yml`, `context/dioxus/facts.ts`, `context/dioxus/index.md.njk`, and all included Markdown.
-- [ ] A production package install contains Nunjucks and all source runtime files.
-- [ ] Documentation does not describe a registry or project-provided executable template.
+- [x] `npm pack --dry-run` lists `presets/dioxus-rust.yml`, `context/dioxus/facts.ts`, `context/dioxus/index.md.njk`, and all included Markdown.
+- [x] A production package install contains Nunjucks and all source runtime files.
+- [x] Documentation does not describe a registry or project-provided executable template.
 
 ## Work Unit 11: Run final validation
 
