@@ -266,20 +266,20 @@ The limits cover the accepted core rules and only the permitted deltas. The ambi
 
 **Depends on:** Work Unit 4
 
-- [ ] Remove the detected-project inventory from `context/dioxus/index.md.njk`.
-- [ ] Do not render package names or declared, forwarded, and default feature lists.
-- [ ] Render `CORE.md` unconditionally after Dioxus detection.
-- [ ] Render only the small router, full-stack, and conservative renderer deltas selected by facts.
-- [ ] Remove automatic includes for:
+- [x] Remove the detected-project inventory from `context/dioxus/index.md.njk`.
+- [x] Do not render package names or declared, forwarded, and default feature lists.
+- [x] Render `CORE.md` unconditionally after Dioxus detection.
+- [x] Render only the small router, full-stack, and conservative renderer deltas selected by facts.
+- [x] Remove automatic includes for:
   - every `00-SETUP.md` file;
   - `fullstack/20-AUTH.md`;
   - `fullstack/30-REALTIME-STREAMING.md`;
   - `web/20-PWA.md`;
   - `desktop/20-CUSTOM-RENDERING.md`;
   - `mobile/20-NATIVE-PLUGIN.md`.
-- [ ] Delete or move context files that no longer have a preload purpose after their useful content is present in skill references.
-- [ ] Control include spacing so that disabled sections add no blank-line cost.
-- [ ] Do not shorten `facts.ts` implementation only to reduce context size. Its source is not rendered.
+- [x] Delete or move context files that no longer have a preload purpose after their useful content is present in skill references.
+- [x] Control include spacing so that disabled sections add no blank-line cost.
+- [x] Do not shorten `facts.ts` implementation only to reduce context size. Its source is not rendered.
 
 ### Exit Criteria
 

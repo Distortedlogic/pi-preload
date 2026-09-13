@@ -1,25 +1,19 @@
-{% include "dioxus/CORE.md" %}
-
+{% include "dioxus/CORE.md" -%}
 {% if facts.router %}
-{% include "dioxus/ROUTER.md" %}
-{% endif %}
-
+{% include "dioxus/ROUTER.md" -%}
+{% endif -%}
 {% if facts.fullstack %}
-{% include "dioxus/fullstack/10-FULLSTACK.md" %}
-{% endif %}
-
+{% include "dioxus/fullstack/10-FULLSTACK.md" -%}
+{% endif -%}
 {% if "server" in facts.platforms %}
-{% include "dioxus/server/10-SERVER.md" %}
-{% endif %}
-
+{% include "dioxus/server/10-SERVER.md" -%}
+{% endif -%}
 {% if "web" in facts.platforms %}
-{% include "dioxus/web/10-WEB.md" %}
-{% endif %}
-
+{% include "dioxus/web/10-WEB.md" -%}
+{% endif -%}
 {% if "desktop" in facts.platforms %}
-{% include "dioxus/desktop/10-DESKTOP.md" %}
-{% endif %}
-
+{% include "dioxus/desktop/10-DESKTOP.md" -%}
+{% endif -%}
 {% if "mobile" in facts.platforms %}
-{% include "dioxus/mobile/10-MOBILE.md" %}
-{% endif %}
+{% include "dioxus/mobile/10-MOBILE.md" -%}
+{% endif -%}
