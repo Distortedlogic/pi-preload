@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, formatSize } from "@earendil-works/pi-coding-agent";
@@ -59,6 +59,9 @@ const ON_DEMAND_TREE_DIRECTORIES = new Set(["__tests__", "test", "tests"]);
 const CONCURRENCY = 8;
 const DEADLINE_MS = 30_000;
 const DEFAULT_PRESET_DIRECTORY = fileURLToPath(new URL("./presets/", import.meta.url));
+const DEFAULT_CONTEXT_DIRECTORY = fileURLToPath(new URL("./context/", import.meta.url));
+const CONTEXT_FACTS_FILE = "facts.ts";
+const CONTEXT_TEMPLATE_FILE = "index.md.njk";
 const execFileAsync = promisify(execFile);
 type PreloadBlock = TextContent | ImageContent;
 
@@ -67,6 +70,11 @@ function blockBytes(block: PreloadBlock) {
 }
 
 type PreloadConfiguration = { files: string[]; contexts: string[] };
+type ContextFactsLoader = (input: {
+	cwd: string;
+	signal: AbortSignal;
+}) => Promise<Record<string, unknown> | undefined>;
+type ContextSource = { name: string; facts: Record<string, unknown> };
 
 const CONTEXT_NAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
 
@@ -112,6 +120,84 @@ async function loadConfiguration(
 			...new Set([...inherited.flatMap((configuration) => configuration.contexts), ...ownContexts]),
 		],
 	};
+}
+
+function isPathInside(directory: string, path: string) {
+	const relativePath = relative(directory, path);
+	return (
+		relativePath !== "" &&
+		relativePath !== ".." &&
+		!relativePath.startsWith(`..${sep}`) &&
+		!isAbsolute(relativePath)
+	);
+}
+
+function resolveContextSourcePaths(contextRoot: string, name: string) {
+	validateContextName(name);
+	const factsPath = resolve(contextRoot, name, CONTEXT_FACTS_FILE);
+	const templatePath = resolve(contextRoot, name, CONTEXT_TEMPLATE_FILE);
+	if (!isPathInside(contextRoot, factsPath) || !isPathInside(contextRoot, templatePath)) {
+		throw new Error(`Invalid context source name: ${JSON.stringify(name)}`);
+	}
+	return { factsPath, templatePath };
+}
+
+function contextSourceError(name: string, operation: string, error: unknown) {
+	const detail = error instanceof Error ? error.message : String(error);
+	return new Error(`Context source ${name} ${operation} failed: ${detail}`, { cause: error });
+}
+
+async function loadContextSource(
+	cwd: string,
+	name: string,
+	contextRoot: string,
+	signal: AbortSignal,
+): Promise<ContextSource | undefined> {
+	const { factsPath, templatePath } = resolveContextSourcePaths(contextRoot, name);
+	signal.throwIfAborted();
+	let entryStats;
+	try {
+		entryStats = await Promise.all([stat(factsPath), stat(templatePath)]);
+	} catch {
+		signal.throwIfAborted();
+		throw new Error(`Unknown context source: ${name}`);
+	}
+	if (entryStats.some((entry) => !entry.isFile())) throw new Error(`Unknown context source: ${name}`);
+	signal.throwIfAborted();
+
+	let contextModule: { default?: unknown };
+	try {
+		contextModule = (await import(pathToFileURL(factsPath).href)) as { default?: unknown };
+	} catch (error) {
+		signal.throwIfAborted();
+		throw contextSourceError(name, "import", error);
+	}
+	const loader = contextModule.default;
+	if (typeof loader !== "function") {
+		throw new Error(`Context source ${name} facts.ts default export must be a function.`);
+	}
+	signal.throwIfAborted();
+
+	let facts: Record<string, unknown> | undefined;
+	try {
+		facts = await (loader as ContextFactsLoader)({ cwd, signal });
+	} catch (error) {
+		signal.throwIfAborted();
+		throw contextSourceError(name, "execution", error);
+	}
+	signal.throwIfAborted();
+	return facts === undefined ? undefined : { name, facts };
+}
+
+async function loadContextSources(cwd: string, names: string[], contextDirectory: string, signal: AbortSignal) {
+	if (names.length === 0) return [];
+	const contextRoot = resolve(contextDirectory);
+	const sources: ContextSource[] = [];
+	for (const name of names) {
+		const source = await loadContextSource(cwd, name, contextRoot, signal);
+		if (source) sources.push(source);
+	}
+	return sources;
 }
 
 function exceededTreeAllocation(error: unknown) {
@@ -218,7 +304,12 @@ async function collectFilesystemTree(cwd: string, ignorePatterns: string[], sign
 	}
 }
 
-export async function collectPreload(cwd: string, signal: AbortSignal, presetDirectory = DEFAULT_PRESET_DIRECTORY) {
+export async function collectPreload(
+	cwd: string,
+	signal: AbortSignal,
+	presetDirectory = DEFAULT_PRESET_DIRECTORY,
+	contextDirectory = DEFAULT_CONTEXT_DIRECTORY,
+) {
 	const [config] = await globby("CONTEXT_PRELOAD.yml", {
 		cwd,
 		onlyFiles: false,
@@ -235,7 +326,8 @@ export async function collectPreload(cwd: string, signal: AbortSignal, presetDir
 		throw new Error(`CONTEXT_PRELOAD.yml exceeds ${formatSize(MAX_FILE_BYTES)}.`);
 	}
 
-	const { files: patterns } = await loadConfiguration(resolve(cwd, config.path), presetDirectory, signal);
+	const { files: patterns, contexts } = await loadConfiguration(resolve(cwd, config.path), presetDirectory, signal);
+	await loadContextSources(cwd, contexts, contextDirectory, signal);
 	signal.throwIfAborted();
 	const includePatterns = patterns.filter((pattern) => !pattern.startsWith("!"));
 	const ignorePatterns = patterns.filter((pattern) => pattern.startsWith("!")).map((pattern) => pattern.slice(1));

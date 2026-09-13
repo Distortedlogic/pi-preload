@@ -82,27 +82,27 @@ type ContextFactsLoader = (input: {
 
 ## Work Unit 2: Add convention-based source resolution
 
-- [ ] Define `DEFAULT_CONTEXT_DIRECTORY` from `new URL("./context/", import.meta.url)`.
-- [ ] Resolve each selected name directly as `context/<name>/`; do not enumerate context directories.
-- [ ] Require `facts.ts` and `index.md.njk` at their fixed paths.
-- [ ] Verify that both entry paths remain inside the package context root.
-- [ ] Report a clear `Unknown context source: <name>` error when either required entry is absent or is not a regular file.
-- [ ] Load the package-owned `facts.ts` module through the extension runtime by its resolved file URL.
-- [ ] Validate that the module default export is a function before calling it.
-- [ ] Call each selected facts loader once per `collectPreload` call with `{ cwd, signal }`.
-- [ ] Skip template rendering and block creation when the loader returns `undefined`.
-- [ ] Wrap import and execution failures with the context name while preserving the original error detail.
-- [ ] Do not import any context module when `contexts` is absent or empty.
-- [ ] Add `context/**/*.ts` to `tsconfig.json` so facts loaders receive normal project type checking.
+- [x] Define `DEFAULT_CONTEXT_DIRECTORY` from `new URL("./context/", import.meta.url)`.
+- [x] Resolve each selected name directly as `context/<name>/`; do not enumerate context directories.
+- [x] Require `facts.ts` and `index.md.njk` at their fixed paths.
+- [x] Verify that both entry paths remain inside the package context root.
+- [x] Report a clear `Unknown context source: <name>` error when either required entry is absent or is not a regular file.
+- [x] Load the package-owned `facts.ts` module through the extension runtime by its resolved file URL.
+- [x] Validate that the module default export is a function before calling it.
+- [x] Call each selected facts loader once per `collectPreload` call with `{ cwd, signal }`.
+- [x] Skip template rendering and block creation when the loader returns `undefined`.
+- [x] Wrap import and execution failures with the context name while preserving the original error detail.
+- [x] Do not import any context module when `contexts` is absent or empty.
+- [x] Add `context/**/*.ts` to `tsconfig.json` so facts loaders receive normal project type checking.
 - [ ] Verify source loading in both the unit-test Node runtime and the Pi extension runtime.
 
 ### Acceptance checks
 
-- [ ] Adding a valid `context/<name>/` directory needs no edit to `index.ts` source-specific logic.
-- [ ] Removing a source directory makes its configured name fail without a stale registry entry.
-- [ ] An unselected source module is not imported and cannot perform work.
-- [ ] A selected source that returns `undefined` adds no heading and no empty block.
-- [ ] Source import, export-contract, and execution errors identify the context name.
+- [x] Adding a valid `context/<name>/` directory needs no edit to `index.ts` source-specific logic.
+- [x] Removing a source directory makes its configured name fail without a stale registry entry.
+- [x] An unselected source module is not imported and cannot perform work.
+- [x] A selected source that returns `undefined` adds no heading and no empty block.
+- [x] Source import, export-contract, and execution errors identify the context name.
 
 ## Work Unit 3: Add the shared Nunjucks renderer
 
