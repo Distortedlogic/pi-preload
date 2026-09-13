@@ -203,10 +203,10 @@ type ContextFactsLoader = (input: {
 
 ## Work Unit 6: Implement Dioxus project facts
 
-- [ ] Add `context/dioxus/facts.ts` with the standard default facts-loader export.
-- [ ] Keep the Dioxus facts type and pure metadata parser in the same source module.
-- [ ] Include only fields used by the generated header or template conditions.
-- [ ] Start with these facts unless the final inclusion matrix proves that fewer or more are required:
+- [x] Add `context/dioxus/facts.ts` with the standard default facts-loader export.
+- [x] Keep the Dioxus facts type and pure metadata parser in the same source module.
+- [x] Include only fields used by the generated header or template conditions.
+- [x] Start with these facts unless the final inclusion matrix proves that fewer or more are required:
   - workspace package names that declare Dioxus
   - declared Dioxus version requirements
   - direct dependency features
@@ -214,34 +214,34 @@ type ContextFactsLoader = (input: {
   - Dioxus features reached through each package default-feature path
   - supported platforms from `web`, `desktop`, `mobile`, `native`, and `server`
   - booleans for `fullstack` and `router`
-- [ ] Run `cargo metadata --format-version 1 --no-deps` with `execFile` and no shell.
-- [ ] Run Cargo in the preload project directory.
-- [ ] Pass the source abort signal to Cargo.
-- [ ] Set a bounded stdout buffer for metadata.
-- [ ] Do not run Cargo unless the `dioxus` source is selected.
-- [ ] Do not run a Cargo build or execute build scripts.
-- [ ] Parse only workspace packages from valid metadata.
-- [ ] Detect normal, target-specific, optional, workspace-inherited, and renamed dependencies whose package name is `dioxus`.
-- [ ] Track the local dependency key for renamed dependencies so forwarded entries such as `<alias>/web` are recognized.
-- [ ] Read direct dependency features from Cargo metadata.
-- [ ] Read forwarded feature entries for the Dioxus dependency key, including weak dependency-feature syntax when Cargo reports it.
-- [ ] Resolve local feature references recursively from `default` before deriving default Dioxus features.
-- [ ] Prevent cycles during recursive local-feature resolution.
-- [ ] Detect router use from authoritative dependency or feature metadata, not from a name guess.
-- [ ] Sort every emitted package, requirement, feature, and platform list.
-- [ ] Return `undefined` when valid Cargo metadata contains no Dioxus dependency.
-- [ ] Distinguish declared, forwarded, and default features; do not call them active build features.
-- [ ] Add another repository signal only when a retained fragment has a clear need and that signal is reliable.
-- [ ] Report clear Cargo start, Cargo exit, output-limit, and JSON-parse failures.
+- [x] Run `cargo metadata --format-version 1 --no-deps` with `execFile` and no shell.
+- [x] Run Cargo in the preload project directory.
+- [x] Pass the source abort signal to Cargo.
+- [x] Set a bounded stdout buffer for metadata.
+- [x] Do not run Cargo unless the `dioxus` source is selected.
+- [x] Do not run a Cargo build or execute build scripts.
+- [x] Parse only workspace packages from valid metadata.
+- [x] Detect normal, target-specific, optional, workspace-inherited, and renamed dependencies whose package name is `dioxus`.
+- [x] Track the local dependency key for renamed dependencies so forwarded entries such as `<alias>/web` are recognized.
+- [x] Read direct dependency features from Cargo metadata.
+- [x] Read forwarded feature entries for the Dioxus dependency key, including weak dependency-feature syntax when Cargo reports it.
+- [x] Resolve local feature references recursively from `default` before deriving default Dioxus features.
+- [x] Prevent cycles during recursive local-feature resolution.
+- [x] Detect router use from authoritative dependency or feature metadata, not from a name guess.
+- [x] Sort every emitted package, requirement, feature, and platform list.
+- [x] Return `undefined` when valid Cargo metadata contains no Dioxus dependency.
+- [x] Distinguish declared, forwarded, and default features; do not call them active build features.
+- [x] Add another repository signal only when a retained fragment has a clear need and that signal is reliable.
+- [x] Report clear Cargo start, Cargo exit, output-limit, and JSON-parse failures.
 
 ### Acceptance checks
 
-- [ ] Direct, workspace-inherited, renamed, target-specific, and optional Dioxus dependencies are detected.
-- [ ] Renamed dependency feature forwarding is detected through its local alias.
-- [ ] Direct, forwarded, and recursively reached default features remain separate.
-- [ ] Valid non-Dioxus Cargo metadata returns `undefined`.
-- [ ] Equal metadata produces byte-identical facts.
-- [ ] Detection does not claim command-line feature activation.
+- [x] Direct, workspace-inherited, renamed, target-specific, and optional Dioxus dependencies are detected.
+- [x] Renamed dependency feature forwarding is detected through its local alias.
+- [x] Direct, forwarded, and recursively reached default features remain separate.
+- [x] Valid non-Dioxus Cargo metadata returns `undefined`.
+- [x] Equal metadata produces byte-identical facts.
+- [x] Detection does not claim command-line feature activation.
 
 ## Work Unit 7: Build the Dioxus template and selection policy
 
