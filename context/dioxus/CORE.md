@@ -48,13 +48,10 @@ let state = use_store(|| AppState { items: Vec::new() });
 - Use `#[props(extends = GlobalAttributes)]` and RSX spread syntax when a wrapper component must forward element attributes.
 - Use `children: Element` for component children.
 
-## RSX and routing
+## RSX
 
 - Rust `if`, `match`, `for`, iterators, and expressions work directly in `rsx!`.
 - Give mutable list entries stable keys.
-- Use a typed `Routable` enum with `Router`, `Link`, and `Outlet`.
-- Use typed path, query, hash, catch-all, layout, nest, and redirect declarations instead of parsing locations by hand.
-- Accept route values as `ReadSignal<T>` when reactive hooks must restart after navigation changes.
 
 ## Assets and styling
 

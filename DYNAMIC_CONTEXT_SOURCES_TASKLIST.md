@@ -156,28 +156,50 @@ type ContextFactsLoader = (input: {
 
 ## Work Unit 5: Move the Dioxus context into one source directory
 
-- [ ] Create `context/dioxus/`.
-- [ ] Move `context/CORE.md` to `context/dioxus/CORE.md`.
-- [ ] Move `context/desktop/` to `context/dioxus/desktop/`.
-- [ ] Move `context/fullstack/` to `context/dioxus/fullstack/`.
-- [ ] Move `context/mobile/` to `context/dioxus/mobile/`.
-- [ ] Move `context/server/` to `context/dioxus/server/`.
-- [ ] Move `context/web/` to `context/dioxus/web/`.
-- [ ] Preserve file contents during the move unless a section must be split for independent conditional selection.
-- [ ] Update package-owned references to the moved paths.
-- [ ] Remove the now-empty top-level platform directories.
-- [ ] Make an inclusion matrix for every moved Markdown file.
-- [ ] For each specialized file, choose one explicit policy: include by a reliable fact, include with its parent capability, or keep packaged but do not auto-include yet.
-- [ ] Do not delete authentication, streaming, PWA, custom-rendering, or native-plug-in guidance only because no reliable first-pass signal exists.
-- [ ] Split mixed Markdown only when an existing section needs a different template condition, such as router guidance inside `CORE.md`.
-- [ ] Avoid broad Dioxus content rewrites during the infrastructure change.
+- [x] Create `context/dioxus/`.
+- [x] Move `context/CORE.md` to `context/dioxus/CORE.md`.
+- [x] Move `context/desktop/` to `context/dioxus/desktop/`.
+- [x] Move `context/fullstack/` to `context/dioxus/fullstack/`.
+- [x] Move `context/mobile/` to `context/dioxus/mobile/`.
+- [x] Move `context/server/` to `context/dioxus/server/`.
+- [x] Move `context/web/` to `context/dioxus/web/`.
+- [x] Preserve file contents during the move unless a section must be split for independent conditional selection.
+- [x] Update package-owned references to the moved paths.
+- [x] Remove the now-empty top-level platform directories.
+- [x] Make an inclusion matrix for every moved Markdown file.
+- [x] For each specialized file, choose one explicit policy: include by a reliable fact, include with its parent capability, or keep packaged but do not auto-include yet.
+- [x] Do not delete authentication, streaming, PWA, custom-rendering, or native-plug-in guidance only because no reliable first-pass signal exists.
+- [x] Split mixed Markdown only when an existing section needs a different template condition, such as router guidance inside `CORE.md`.
+- [x] Avoid broad Dioxus content rewrites during the infrastructure change.
+
+### Inclusion matrix
+
+| Fragment | Policy | Selection condition |
+| --- | --- | --- |
+| `context/dioxus/CORE.md` | Include by a reliable fact | Any workspace package declares a Dioxus dependency. |
+| `context/dioxus/ROUTER.md` | Include by a reliable fact | Authoritative dependency or feature metadata declares router use. |
+| `context/dioxus/desktop/00-SETUP.md` | Include with its parent capability | Desktop is declared or reached through a default-feature path. |
+| `context/dioxus/desktop/10-DESKTOP.md` | Include with its parent capability | Desktop is declared or reached through a default-feature path. |
+| `context/dioxus/desktop/20-CUSTOM-RENDERING.md` | Include with its parent capability | Desktop is declared or reached through a default-feature path. |
+| `context/dioxus/fullstack/00-SETUP.md` | Include with its parent capability | Full-stack is declared or reached through a default-feature path. |
+| `context/dioxus/fullstack/10-FULLSTACK.md` | Include with its parent capability | Full-stack is declared or reached through a default-feature path. |
+| `context/dioxus/fullstack/20-AUTH.md` | Include with its parent capability | Full-stack is declared or reached through a default-feature path. |
+| `context/dioxus/fullstack/30-REALTIME-STREAMING.md` | Include with its parent capability | Full-stack is declared or reached through a default-feature path. |
+| `context/dioxus/mobile/00-SETUP.md` | Include with its parent capability | Mobile is declared or reached through a default-feature path. |
+| `context/dioxus/mobile/10-MOBILE.md` | Include with its parent capability | Mobile is declared or reached through a default-feature path. |
+| `context/dioxus/mobile/20-NATIVE-PLUGIN.md` | Include with its parent capability | Mobile is declared or reached through a default-feature path. |
+| `context/dioxus/server/00-SETUP.md` | Include with its parent capability | Server is declared or reached through a default-feature path. |
+| `context/dioxus/server/10-SERVER.md` | Include with its parent capability | Server is declared or reached through a default-feature path. |
+| `context/dioxus/web/00-SETUP.md` | Include with its parent capability | Web is declared or reached through a default-feature path. |
+| `context/dioxus/web/10-WEB.md` | Include with its parent capability | Web is declared or reached through a default-feature path. |
+| `context/dioxus/web/20-PWA.md` | Include with its parent capability | Web is declared or reached through a default-feature path. |
 
 ### Acceptance checks
 
-- [ ] Every existing Dioxus Markdown file is present below `context/dioxus/` or has an explicit recorded merge target.
-- [ ] Every retained fragment has one documented template-selection policy.
-- [ ] General Dioxus guidance is separate from platform and optional-capability guidance.
-- [ ] No old top-level Dioxus platform path remains in package references.
+- [x] Every existing Dioxus Markdown file is present below `context/dioxus/` or has an explicit recorded merge target.
+- [x] Every retained fragment has one documented template-selection policy.
+- [x] General Dioxus guidance is separate from platform and optional-capability guidance.
+- [x] No old top-level Dioxus platform path remains in package references.
 
 ## Work Unit 6: Implement Dioxus project facts
 
