@@ -7,7 +7,7 @@ Select the smallest integration level that meets the host requirement:
 3. Custom paint in Dioxus Native with `dioxus_native::use_wgpu`.
 4. An externally driven `DioxusDocument` when the host owns rendering and input.
 
-Use Dioxus menu, tray, global-shortcut, window, and close APIs for standard desktop behavior. Use `use_wry_event_handler` only when a required Tao or Wry event has no higher-level Dioxus hook.
+Use Dioxus menu, tray, global-shortcut, and close APIs for standard desktop behavior. Use `use_wry_event_handler` only for a required host event that has no Dioxus hook.
 
 For another window, create a new `VirtualDom` and pass explicit root props or context to it.
 

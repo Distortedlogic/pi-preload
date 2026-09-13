@@ -323,13 +323,13 @@ The limits cover the accepted core rules and only the permitted deltas. The ambi
 
 **Depends on:** Work Unit 6
 
-- [ ] Render all representative fixtures and compare their byte counts with the baseline.
-- [ ] Confirm that every rendered sentence passes the admission policy.
-- [ ] Confirm that every moved specialist subject remains reachable through the skill.
-- [ ] Search the preload and skill references for duplicated rules.
-- [ ] Run `npm run check`.
-- [ ] Review the final diff for unrelated edits, added comments, duplicated examples, and unnecessary dependencies.
-- [ ] Commit the completed implementation with one minimal, accurate message.
+- [x] Render all representative fixtures and compare their byte counts with the baseline.
+- [x] Confirm that every rendered sentence passes the admission policy.
+- [x] Confirm that every moved specialist subject remains reachable through the skill.
+- [x] Search the preload and skill references for duplicated rules.
+- [x] Run `npm run check`.
+- [x] Review the final diff for unrelated edits, added comments, duplicated examples, and unnecessary dependencies.
+- [x] Commit the completed implementation with one minimal, accurate message.
 
 ### Exit Criteria
 

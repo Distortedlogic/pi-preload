@@ -1,6 +1,6 @@
 # Custom server integration
 
-Add required non-Dioxus routes and global Axum layers to the outer router returned by Dioxus. Keep the Dioxus router mounted in that outer router.
+Apply router-wide Tower layers to the outer Axum router. Merge required non-Dioxus routes without changing generated operation paths.
 
 Apply endpoint-specific Tower middleware with `#[middleware(...)]` on the server function. Do not rebuild that operation as an Axum route.
 

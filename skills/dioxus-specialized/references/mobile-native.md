@@ -22,4 +22,4 @@ Match generated Rust declarations to native class names and signatures. Keep the
 
 Keep bundle identity, deployment targets, Android SDK values, background modes, native features, and plug-in configuration in `Dioxus.toml`. Use `[[ios.widget_extensions]]` for a bundled widget source, display name, bundle suffix, deployment target, and module name. An ActivityKit plug-in and its widget must compile the same `ActivityAttributes` type under the same Swift module identity.
 
-Gate Swift and Kotlin bindings with `target_os`. Supply a typed fallback for other renderers so shared Rust reports an unsupported platform instead of failing to compile.
+Supply a typed fallback for other renderers so shared Rust reports an unsupported platform instead of failing to compile.
