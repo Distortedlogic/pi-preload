@@ -226,16 +226,16 @@ The limits cover the accepted core rules and only the permitted deltas. The ambi
 
 **Depends on:** Work Units 2 and 3
 
-- [ ] Reduce `context/dioxus/CORE.md` to compact rules for:
+- [x] Reduce `context/dioxus/CORE.md` to compact rules for:
   - the Dioxus 0.7.10 target;
   - rejection of `Scope`, `cx.render`, `use_state`, and old component-context APIs;
   - copyable signal handles without clone scaffolding;
   - `ReadSignal<T>` for reactive read access and `WriteSignal<T>` or `Signal<T>` only for mutation;
   - `use_loader(...)?` for render-required data and `use_action` for explicit operations;
   - use of lower-level platform APIs only when Dioxus has no suitable operation.
-- [ ] Remove general component, RSX, signal syntax, iterator, effect, memo, callback, children, asset, CSS, and document-element instruction from `CORE.md`.
-- [ ] Reduce `context/dioxus/ROUTER.md` to the route-value reactivity fact that prevents stale reactive hooks. Move all route construction guidance to the skill.
-- [ ] Reduce `context/dioxus/fullstack/10-FULLSTACK.md` to stable generated-server-function facts:
+- [x] Remove general component, RSX, signal syntax, iterator, effect, memo, callback, children, asset, CSS, and document-element instruction from `CORE.md`.
+- [x] Reduce `context/dioxus/ROUTER.md` to the route-value reactivity fact that prevents stale reactive hooks. Move all route construction guidance to the skill.
+- [x] Reduce `context/dioxus/fullstack/10-FULLSTACK.md` to stable generated-server-function facts:
   - current HTTP verb macros;
   - server-only extractor position;
   - direct Rust client calls;
@@ -243,15 +243,15 @@ The limits cover the accepted core rules and only the permitted deltas. The ambi
   - loader SSR transfer and hydration reuse;
   - automatic registration and the typed-state exception;
   - explicit HTTP error status behavior.
-- [ ] Reduce each retained renderer runtime file to rules that apply to nearly every task for that renderer:
+- [x] Reduce each retained renderer runtime file to rules that apply to nearly every task for that renderer:
   - `context/dioxus/web/10-WEB.md`: hydration reuse, browser-only work after mount, and Dioxus APIs before `web_sys`;
   - `context/dioxus/server/10-SERVER.md`: default serving and the narrow boundary for custom outer-router code;
   - `context/dioxus/desktop/10-DESKTOP.md`: direct local Rust and Dioxus window APIs before Wry or Tao;
   - `context/dioxus/mobile/10-MOBILE.md`: shared Rust logic, target guards, and manifest-owned supported permissions.
-- [ ] Do not add a native preload block unless there is a stable native fact that passes the admission policy. Keep native specialist guidance in the skill.
-- [ ] Remove introductions, tutorials, standard project layouts, ordinary commands, placeholder implementations, long API lists, and repeated rationale.
-- [ ] Use short imperative rules. Prefer `Use X when Y. Do not use Z.`
-- [ ] Remove redundant headings and all excess internal or trailing blank lines.
+- [x] Do not add a native preload block unless there is a stable native fact that passes the admission policy. Keep native specialist guidance in the skill.
+- [x] Remove introductions, tutorials, standard project layouts, ordinary commands, placeholder implementations, long API lists, and repeated rationale.
+- [x] Use short imperative rules. Prefer `Use X when Y. Do not use Z.`
+- [x] Remove redundant headings and all excess internal or trailing blank lines.
 
 ### Exit Criteria
 
