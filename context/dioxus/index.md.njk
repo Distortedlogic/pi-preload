@@ -1,0 +1,53 @@
+# Detected Dioxus Project
+
+- Workspace packages: {{ facts.packageNames | join(", ") }}
+- Version requirements: {% if facts.versionRequirements.length %}{{ facts.versionRequirements | join(", ") }}{% else %}none{% endif %}
+- Declared Dioxus features: {% if facts.declaredFeatures.length %}{{ facts.declaredFeatures | join(", ") }}{% else %}none{% endif %}
+- Forwarded Dioxus features: {% if facts.forwardedFeatures.length %}{{ facts.forwardedFeatures | join(", ") }}{% else %}none{% endif %}
+- Default-path Dioxus features: {% if facts.defaultFeatures.length %}{{ facts.defaultFeatures | join(", ") }}{% else %}none{% endif %}
+
+{% include "dioxus/CORE.md" %}
+
+{% if facts.router %}
+{% include "dioxus/ROUTER.md" %}
+{% endif %}
+
+{% if facts.fullstack %}
+{% include "dioxus/fullstack/00-SETUP.md" %}
+
+{% include "dioxus/fullstack/10-FULLSTACK.md" %}
+
+{% include "dioxus/fullstack/20-AUTH.md" %}
+
+{% include "dioxus/fullstack/30-REALTIME-STREAMING.md" %}
+{% endif %}
+
+{% if "server" in facts.platforms %}
+{% include "dioxus/server/00-SETUP.md" %}
+
+{% include "dioxus/server/10-SERVER.md" %}
+{% endif %}
+
+{% if "web" in facts.platforms %}
+{% include "dioxus/web/00-SETUP.md" %}
+
+{% include "dioxus/web/10-WEB.md" %}
+
+{% include "dioxus/web/20-PWA.md" %}
+{% endif %}
+
+{% if "desktop" in facts.platforms %}
+{% include "dioxus/desktop/00-SETUP.md" %}
+
+{% include "dioxus/desktop/10-DESKTOP.md" %}
+
+{% include "dioxus/desktop/20-CUSTOM-RENDERING.md" %}
+{% endif %}
+
+{% if "mobile" in facts.platforms %}
+{% include "dioxus/mobile/00-SETUP.md" %}
+
+{% include "dioxus/mobile/10-MOBILE.md" %}
+
+{% include "dioxus/mobile/20-NATIVE-PLUGIN.md" %}
+{% endif %}

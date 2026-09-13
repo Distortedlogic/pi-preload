@@ -245,29 +245,29 @@ type ContextFactsLoader = (input: {
 
 ## Work Unit 7: Build the Dioxus template and selection policy
 
-- [ ] Add `context/dioxus/index.md.njk`.
-- [ ] Add a short generated header with detected packages, version requirements, declared features, and default features.
-- [ ] Always include `context/dioxus/CORE.md` after Dioxus is detected.
-- [ ] Include full-stack guidance only when full-stack capability is declared or reached through the selected default path.
-- [ ] Include server guidance only when server capability is declared or reached through the selected default path.
-- [ ] Include web guidance only when web capability is declared or reached through the selected default path.
-- [ ] Include desktop guidance only when desktop capability is declared or reached through the selected default path.
-- [ ] Include mobile guidance only when mobile capability is declared or reached through the selected default path.
-- [ ] Include router guidance only when router use is detected.
-- [ ] Apply the inclusion matrix from Work Unit 5 to authentication, streaming, PWA, custom-rendering, and native-plug-in fragments.
-- [ ] Use static package-relative include paths in the template.
-- [ ] Keep condition logic in the root template and guidance in Markdown fragments.
-- [ ] Remove duplicate guidance only when conditional splitting creates an exact duplicate.
-- [ ] Do not add broad API catalog content while moving or splitting fragments.
+- [x] Add `context/dioxus/index.md.njk`.
+- [x] Add a short generated header with detected packages, version requirements, declared features, and default features.
+- [x] Always include `context/dioxus/CORE.md` after Dioxus is detected.
+- [x] Include full-stack guidance only when full-stack capability is declared or reached through the selected default path.
+- [x] Include server guidance only when server capability is declared or reached through the selected default path.
+- [x] Include web guidance only when web capability is declared or reached through the selected default path.
+- [x] Include desktop guidance only when desktop capability is declared or reached through the selected default path.
+- [x] Include mobile guidance only when mobile capability is declared or reached through the selected default path.
+- [x] Include router guidance only when router use is detected.
+- [x] Apply the inclusion matrix from Work Unit 5 to authentication, streaming, PWA, custom-rendering, and native-plug-in fragments.
+- [x] Use static package-relative include paths in the template.
+- [x] Keep condition logic in the root template and guidance in Markdown fragments.
+- [x] Remove duplicate guidance only when conditional splitting creates an exact duplicate.
+- [x] Do not add broad API catalog content while moving or splitting fragments.
 
 ### Acceptance checks
 
-- [ ] Core guidance appears for every detected applicable Dioxus project.
-- [ ] Each platform section appears only for its matching declared or default capability.
-- [ ] Router guidance does not appear without router use.
-- [ ] Every specialized document follows its recorded inclusion policy.
-- [ ] The root template is readable as the complete context-selection policy.
-- [ ] No context appears when the facts loader finds no Dioxus dependency.
+- [x] Core guidance appears for every detected applicable Dioxus project.
+- [x] Each platform section appears only for its matching declared or default capability.
+- [x] Router guidance does not appear without router use.
+- [x] Every specialized document follows its recorded inclusion policy.
+- [x] The root template is readable as the complete context-selection policy.
+- [x] No context appears when the facts loader finds no Dioxus dependency.
 
 ## Work Unit 8: Update the existing unit tests
 
