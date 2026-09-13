@@ -23,6 +23,7 @@
     "index.ts",
     "README.md",
     "LICENSE",
+    "context",
     "skills",
     "presets"
   ],
