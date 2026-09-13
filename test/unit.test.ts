@@ -548,12 +548,7 @@ const dioxusContextScenarios = {
 		platforms: ["server", "web"],
 		fullstack: true,
 	},
-	unrelatedWorkspace: {
-		...dioxusBaseFacts,
-		platforms: ["desktop", "mobile", "server", "web"],
-		fullstack: true,
-		router: true,
-	},
+	unrelatedWorkspace: dioxusBaseFacts,
 } satisfies Record<string, DioxusFacts>;
 const dioxusContextBaselineBytes = {
 	coreOnly: 3861,
@@ -580,46 +575,87 @@ test("records representative Dioxus context baseline byte counts and budgets", (
 		]),
 	) as Record<keyof typeof dioxusContextScenarios, number>;
 	for (const name of Object.keys(dioxusContextScenarios) as Array<keyof typeof dioxusContextScenarios>) {
-		assert.ok(renderedBytes[name] <= dioxusContextBaselineBytes[name]);
-		assert.ok(dioxusContextByteBudgets[name] < dioxusContextBaselineBytes[name]);
+		assert.ok(
+			renderedBytes[name] <= dioxusContextByteBudgets[name],
+			`${name} exceeds its ${dioxusContextByteBudgets[name]} byte limit`,
+		);
+		assert.ok(renderedBytes[name] < dioxusContextBaselineBytes[name]);
 	}
 });
 
-test("Dioxus template follows every inclusion-matrix condition", () => {
+test("Dioxus template follows every inclusion-matrix condition", async () => {
+	const groups: Array<{ facts: Partial<DioxusFacts>; file: string }> = [
+		{ facts: { router: true }, file: "ROUTER.md" },
+		{ facts: { fullstack: true }, file: "fullstack/10-FULLSTACK.md" },
+		{ facts: { platforms: ["server"] }, file: "server/10-SERVER.md" },
+		{ facts: { platforms: ["web"] }, file: "web/10-WEB.md" },
+		{ facts: { platforms: ["desktop"] }, file: "desktop/10-DESKTOP.md" },
+		{ facts: { platforms: ["mobile"] }, file: "mobile/10-MOBILE.md" },
+	];
+	const files = ["CORE.md", ...groups.map((group) => group.file)];
+	const fragments = new Map(
+		await Promise.all(
+			files.map(
+				async (file) =>
+					[file, await readFile(join(import.meta.dirname, "..", "context", "dioxus", file), "utf8")] as const,
+			),
+		),
+	);
+	const core = fragments.get("CORE.md");
+	assert.ok(core);
 	const render = (facts: Partial<DioxusFacts> = {}) => renderDioxusContext({ ...dioxusBaseFacts, ...facts });
-	const groups: Array<{ facts: Partial<DioxusFacts>; headings: string[] }> = [
-		{ facts: { router: true }, headings: ["# Dioxus Routing"] },
-		{ facts: { fullstack: true }, headings: ["# Full-Stack Runtime"] },
-		{ facts: { platforms: ["server"] }, headings: ["# Server Runtime"] },
-		{ facts: { platforms: ["web"] }, headings: ["# Web Runtime"] },
-		{ facts: { platforms: ["desktop"] }, headings: ["# Desktop Runtime"] },
-		{ facts: { platforms: ["mobile"] }, headings: ["# Mobile Runtime"] },
-	];
-	const allConditionalHeadings = groups.flatMap((group) => group.headings);
-	const specialistHeadings = [
-		"# Full-Stack Initial Setup",
-		"# Full-Stack Authentication",
-		"# Full-Stack Real-Time and Streaming",
-		"# Server Initial Setup",
-		"# Web Initial Setup",
-		"# Web PWA Integration",
-		"# Desktop Initial Setup",
-		"# Desktop Custom Rendering",
-		"# Mobile Initial Setup",
-		"# Mobile Native Plug-Ins",
-	];
-	const coreOnly = render();
-	assert.doesNotMatch(coreOnly, /# Detected Dioxus Project|Workspace packages|Dioxus features/);
-	assert.match(coreOnly, /# Dioxus Core Context/);
-	for (const heading of allConditionalHeadings) assert.ok(!coreOnly.includes(heading));
+	const specialistContent =
+		/Initial Setup|dx serve|\[features\]|LaunchBuilder|use_store|#\[store\]|SetCookie|TypedHeader<Cookie>|ServerEvents|Websocket|FileStream|ByteStream|MultipartFormData|service[- ]worker|CustomPaintSource|use_wgpu|DioxusDocument|manganis::ffi|widget_extensions|ActivityAttributes|Gradle|extern "Swift"/i;
 
+	assert.equal(render(), core);
+	assert.doesNotMatch(render(), specialistContent);
 	for (const group of groups) {
+		const fragment = fragments.get(group.file);
+		assert.ok(fragment);
 		const rendered = render(group.facts);
-		assert.match(rendered, /# Dioxus Core Context/);
-		for (const heading of group.headings) assert.ok(rendered.includes(heading));
-		for (const heading of allConditionalHeadings) {
-			if (!group.headings.includes(heading)) assert.ok(!rendered.includes(heading));
-		}
-		for (const heading of specialistHeadings) assert.ok(!rendered.includes(heading));
+		assert.equal(rendered, `${core}\n${fragment}`);
+		assert.doesNotMatch(rendered, specialistContent);
+	}
+
+	const allFragments = groups.map((group) => {
+		const fragment = fragments.get(group.file);
+		assert.ok(fragment);
+		return fragment;
+	});
+	const allCapabilities = render({
+		platforms: ["server", "web", "desktop", "mobile"],
+		fullstack: true,
+		router: true,
+	});
+	assert.equal(allCapabilities, [core, ...allFragments].join("\n"));
+	assert.doesNotMatch(allCapabilities, specialistContent);
+});
+
+test("package includes the Dioxus specialized skill and all references", async () => {
+	const packageRoot = join(import.meta.dirname, "..");
+	const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")) as {
+		files?: string[];
+		pi?: { skills?: string[] };
+	};
+	assert.ok(manifest.files?.includes("skills"));
+	assert.ok(manifest.pi?.skills?.includes("./skills"));
+
+	const skillDirectory = join(packageRoot, "skills", "dioxus-specialized");
+	const skill = await readFile(join(skillDirectory, "SKILL.md"), "utf8");
+	const references = [
+		"project-setup.md",
+		"state-store.md",
+		"advanced-routing.md",
+		"assets-tailwind.md",
+		"fullstack-auth.md",
+		"fullstack-streaming.md",
+		"server-integration.md",
+		"web-pwa.md",
+		"desktop-integration.md",
+		"mobile-native.md",
+	];
+	for (const reference of references) {
+		assert.ok(skill.includes(`references/${reference}`));
+		assert.ok((await readFile(join(skillDirectory, "references", reference), "utf8")).trim().length > 0);
 	}
 });

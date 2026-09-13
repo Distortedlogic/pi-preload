@@ -35,7 +35,11 @@ contexts:
 
 Cargo must be available when the `dioxus` source is selected. The source runs `cargo metadata --format-version 1 --no-deps`. It does not run a build or a build script.
 
-Dioxus detection reports capabilities that repository Cargo files declare. It does not report features that a command line activates for one build.
+The source first selects the Dioxus package whose manifest directory is the deepest parent of the current directory. Outside a package directory, it selects the only Dioxus workspace default member, then the only Dioxus workspace package. An ambiguous workspace receives core rules only.
+
+Capability selection uses features on the selected package's normal `dioxus` dependency and forwarded features that its `default` feature graph reaches. Features from unrelated workspace packages and inactive feature declarations do not add context.
+
+Automatic context contains core rules and only certain router, full-stack, and default-path renderer deltas. Project setup, Store state, advanced routing, authentication, streaming, custom server work, PWA work, desktop integration, and mobile native integration are in the packaged `dioxus-specialized` skill. Ordinary component edits do not need that skill.
 
 ## Dynamic context source convention
 

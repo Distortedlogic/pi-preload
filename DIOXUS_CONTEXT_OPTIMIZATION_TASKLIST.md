@@ -294,9 +294,9 @@ The limits cover the accepted core rules and only the permitted deltas. The ambi
 
 **Depends on:** Work Units 2 through 5
 
-- [ ] Update `test/unit.test.ts` and `test/e2e.test.ts` only. Do not add a new test file or suite.
-- [ ] Verify exact inclusion and exclusion for core, router, full-stack, and each conservative renderer delta.
-- [ ] Verify that the following never enter preload output:
+- [x] Update `test/unit.test.ts` and `test/e2e.test.ts` only. Do not add a new test file or suite.
+- [x] Verify exact inclusion and exclusion for core, router, full-stack, and each conservative renderer delta.
+- [x] Verify that the following never enter preload output:
   - setup instructions;
   - Store guidance;
   - auth guidance;
@@ -304,12 +304,12 @@ The limits cover the accepted core rules and only the permitted deltas. The ambi
   - PWA guidance;
   - custom desktop rendering guidance;
   - mobile native plug-in guidance.
-- [ ] Verify selected-package behavior in nested and virtual workspaces.
-- [ ] Verify core-only fallback for ambiguous workspaces.
-- [ ] Add regression assertions for rendered byte budgets.
-- [ ] Verify that the packaged skill and all referenced files are included by the existing package manifest and `files` list.
-- [ ] Update `README.md` only where it describes Dioxus context selection or packaged skills. Do not add tutorial content.
-- [ ] Remove documentation that claims specialist guidance is automatically preloaded.
+- [x] Verify selected-package behavior in nested and virtual workspaces.
+- [x] Verify core-only fallback for ambiguous workspaces.
+- [x] Add regression assertions for rendered byte budgets.
+- [x] Verify that the packaged skill and all referenced files are included by the existing package manifest and `files` list.
+- [x] Update `README.md` only where it describes Dioxus context selection or packaged skills. Do not add tutorial content.
+- [x] Remove documentation that claims specialist guidance is automatically preloaded.
 
 ### Exit Criteria
 

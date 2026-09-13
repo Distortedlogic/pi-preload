@@ -50,13 +50,19 @@ test("Pi adds preloaded file contents and a filesystem tree to a fresh session",
 test("Pi preloads detected Dioxus context from an offline local workspace", { timeout: 30_000 }, async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-e2e-"));
 	const app = join(project, "app");
+	const unrelated = join(project, "unrelated");
 	const dioxus = join(project, "vendor", "dioxus");
-	await Promise.all([mkdir(join(app, "src"), { recursive: true }), mkdir(join(dioxus, "src"), { recursive: true })]);
+	await Promise.all([
+		mkdir(join(app, "src"), { recursive: true }),
+		mkdir(join(unrelated, "src"), { recursive: true }),
+		mkdir(join(dioxus, "src"), { recursive: true }),
+	]);
 	await Promise.all([
 		writeFile(
 			join(project, "Cargo.toml"),
 			`[workspace]
-members = ["app"]
+members = ["app", "unrelated"]
+default-members = ["app"]
 exclude = ["vendor/dioxus"]
 resolver = "2"
 
@@ -82,6 +88,18 @@ server-target = ["dioxus/server", "dioxus/fullstack"]
 `,
 		),
 		writeFile(join(app, "src", "lib.rs"), "pub fn app() {}\n"),
+		writeFile(
+			join(unrelated, "Cargo.toml"),
+			`[package]
+name = "unrelated-app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dioxus = { workspace = true, features = ["desktop", "mobile"] }
+`,
+		),
+		writeFile(join(unrelated, "src", "lib.rs"), "pub fn unrelated() {}\n"),
 		writeFile(
 			join(dioxus, "Cargo.toml"),
 			`[package]
@@ -142,7 +160,7 @@ files:
 	assert.match(contextBlock.text, /# Web Runtime/);
 	assert.doesNotMatch(
 		contextBlock.text,
-		/# Dioxus Routing|Initial Setup|Authentication|Real-Time and Streaming|PWA Integration|# Desktop|# Mobile/,
+		/# Dioxus Routing|Initial Setup|Authentication|Real-Time and Streaming|PWA Integration|# Desktop|# Mobile|use_store|SetCookie|ServerEvents|CustomPaintSource|manganis::ffi/,
 	);
 	assert.deepEqual(preload.content[1], { type: "text", text: "File: app/src/lib.rs\n\npub fn app() {}\n" });
 	const tree = await readFile(join(project, "TREE.txt"), "utf8");
