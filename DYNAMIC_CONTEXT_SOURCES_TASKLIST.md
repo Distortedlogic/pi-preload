@@ -78,7 +78,7 @@ type ContextFactsLoader = (input: {
 - [x] Context inheritance follows preset order and then local order.
 - [x] Repeated inherited and local names run once at their first position.
 - [x] Unsafe names fail before any module load or template render.
-- [ ] `extends: ["dioxus-rust"]` selects the package directory `context/dioxus/`.
+- [x] `extends: ["dioxus-rust"]` selects the package directory `context/dioxus/`.
 
 ## Work Unit 2: Add convention-based source resolution
 
@@ -94,7 +94,7 @@ type ContextFactsLoader = (input: {
 - [x] Wrap import and execution failures with the context name while preserving the original error detail.
 - [x] Do not import any context module when `contexts` is absent or empty.
 - [x] Add `context/**/*.ts` to `tsconfig.json` so facts loaders receive normal project type checking.
-- [ ] Verify source loading in both the unit-test Node runtime and the Pi extension runtime.
+- [x] Verify source loading in both the unit-test Node runtime and the Pi extension runtime.
 
 ### Acceptance checks
 
@@ -297,26 +297,26 @@ type ContextFactsLoader = (input: {
 
 ## Work Unit 9: Update the existing end-to-end test
 
-- [ ] Update `test/e2e.test.ts`; do not create another end-to-end file.
-- [ ] Keep the existing static preload case.
-- [ ] Add an isolated Cargo workspace fixture.
-- [ ] Add a local path package whose package name is `dioxus` so the test needs no registry download.
-- [ ] Give the local package only the minimal feature declarations needed by Cargo metadata.
-- [ ] Configure the fixture with `extends: ["dioxus-rust"]` and at least one selected project file.
-- [ ] Select a clear capability set, such as web plus server/full-stack, through forwarded and default features.
-- [ ] Keep `PI_OFFLINE=1` in the Pi process environment.
-- [ ] Ensure Cargo metadata cannot require a network request.
-- [ ] Assert that the hidden custom message contains the Dioxus context block first, selected files next, and `TREE.txt` last.
-- [ ] Assert that selected Dioxus sections are present.
-- [ ] Assert that desktop, mobile, and every other unselected optional section are absent.
-- [ ] Assert that selected-file count and byte metrics remain file-only where accessible.
+- [x] Update `test/e2e.test.ts`; do not create another end-to-end file.
+- [x] Keep the existing static preload case.
+- [x] Add an isolated Cargo workspace fixture.
+- [x] Add a local path package whose package name is `dioxus` so the test needs no registry download.
+- [x] Give the local package only the minimal feature declarations needed by Cargo metadata.
+- [x] Configure the fixture with `extends: ["dioxus-rust"]` and at least one selected project file.
+- [x] Select a clear capability set, such as web plus server/full-stack, through forwarded and default features.
+- [x] Keep `PI_OFFLINE=1` in the Pi process environment.
+- [x] Ensure Cargo metadata cannot require a network request.
+- [x] Assert that the hidden custom message contains the Dioxus context block first, selected files next, and `TREE.txt` last.
+- [x] Assert that selected Dioxus sections are present.
+- [x] Assert that desktop, mobile, and every other unselected optional section are absent.
+- [x] Assert that selected-file count and byte metrics remain file-only where accessible.
 
 ### Acceptance checks
 
-- [ ] The end-to-end test does not download Dioxus.
-- [ ] It does not run a Cargo build or build script.
-- [ ] It proves convention-based source loading through the real Pi extension runtime.
-- [ ] It proves dynamic, static, and tree block ordering.
+- [x] The end-to-end test does not download Dioxus.
+- [x] It does not run a Cargo build or build script.
+- [x] It proves convention-based source loading through the real Pi extension runtime.
+- [x] It proves dynamic, static, and tree block ordering.
 
 ## Work Unit 10: Package and document the convention
 

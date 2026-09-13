@@ -46,3 +46,111 @@ test("Pi adds preloaded file contents and a filesystem tree to a fresh session",
 	assert.match(tree, /test/);
 	assert.doesNotMatch(tree, /deep\.test\.ts|CONTEXT_PRELOAD\.yml|TREE\.txt|uv\.lock/);
 });
+
+test("Pi preloads detected Dioxus context from an offline local workspace", { timeout: 30_000 }, async (t) => {
+	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-e2e-"));
+	const app = join(project, "app");
+	const dioxus = join(project, "vendor", "dioxus");
+	await Promise.all([
+		mkdir(join(app, "src"), { recursive: true }),
+		mkdir(join(dioxus, "src"), { recursive: true }),
+	]);
+	await Promise.all([
+		writeFile(
+			join(project, "Cargo.toml"),
+			`[workspace]
+members = ["app"]
+exclude = ["vendor/dioxus"]
+resolver = "2"
+
+[workspace.dependencies]
+dioxus = { version = "0.7.10", path = "vendor/dioxus", default-features = false }
+`,
+		),
+		writeFile(
+			join(app, "Cargo.toml"),
+			`[package]
+name = "fixture-app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dioxus = { workspace = true }
+
+[features]
+default = ["application"]
+application = ["web-target", "server-target"]
+web-target = ["dioxus/web"]
+server-target = ["dioxus/server", "dioxus/fullstack"]
+`,
+		),
+		writeFile(join(app, "src", "lib.rs"), "pub fn app() {}\n"),
+		writeFile(
+			join(dioxus, "Cargo.toml"),
+			`[package]
+name = "dioxus"
+version = "0.7.10"
+edition = "2021"
+
+[features]
+default = []
+web = []
+server = []
+fullstack = []
+desktop = []
+mobile = []
+native = []
+router = []
+`,
+		),
+		writeFile(join(dioxus, "src", "lib.rs"), "pub fn launch() {}\n"),
+		writeFile(
+			join(project, "CONTEXT_PRELOAD.yml"),
+			`extends:
+  - "dioxus-rust"
+files:
+  - "app/src/lib.rs"
+`,
+		),
+	]);
+
+	const client = new RpcClient({
+		cliPath,
+		cwd: project,
+		env: { PI_OFFLINE: "1", CARGO_NET_OFFLINE: "true" },
+		args: ["--approve", "--no-session", "--no-extensions", "--extension", extensionPath],
+	});
+	t.after(async () => {
+		await client.stop();
+		await rm(project, { recursive: true, force: true });
+	});
+	await client.start();
+
+	const messages = await client.getMessages();
+	const preload = messages.find((message) => message.role === "custom" && message.customType === "context-preload");
+
+	assert.ok(preload);
+	if (preload.role !== "custom") assert.fail("Expected a custom preload message");
+	assert.equal(preload.display, false);
+	assert.ok(Array.isArray(preload.content));
+	assert.equal(preload.content.length, 3);
+	const contextBlock = preload.content[0];
+	assert.equal(contextBlock?.type, "text");
+	if (contextBlock?.type !== "text") assert.fail("Expected Dioxus text context");
+	assert.match(contextBlock.text, /^Context: dioxus\n\n/);
+	assert.match(contextBlock.text, /Workspace packages: fixture-app/);
+	assert.match(contextBlock.text, /Default-path Dioxus features: fullstack, server, web/);
+	assert.match(contextBlock.text, /# Dioxus Core Context/);
+	assert.match(contextBlock.text, /# Full-Stack Initial Setup/);
+	assert.match(contextBlock.text, /# Full-Stack Authentication/);
+	assert.match(contextBlock.text, /# Full-Stack Real-Time and Streaming/);
+	assert.match(contextBlock.text, /# Server Initial Setup/);
+	assert.match(contextBlock.text, /# Server Runtime/);
+	assert.match(contextBlock.text, /# Web Initial Setup/);
+	assert.match(contextBlock.text, /# Web Runtime/);
+	assert.match(contextBlock.text, /# Web PWA Integration/);
+	assert.doesNotMatch(contextBlock.text, /# Dioxus Routing|# Desktop|# Mobile/);
+	assert.deepEqual(preload.content[1], { type: "text", text: "File: app/src/lib.rs\n\npub fn app() {}\n" });
+	const tree = await readFile(join(project, "TREE.txt"), "utf8");
+	assert.deepEqual(preload.content[2], { type: "text", text: `File: TREE.txt\n\n${tree}` });
+});
