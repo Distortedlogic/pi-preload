@@ -589,30 +589,25 @@ test("Dioxus template follows every inclusion-matrix condition", () => {
 	const render = (facts: Partial<DioxusFacts> = {}) => renderDioxusContext({ ...dioxusBaseFacts, ...facts });
 	const groups: Array<{ facts: Partial<DioxusFacts>; headings: string[] }> = [
 		{ facts: { router: true }, headings: ["# Dioxus Routing"] },
-		{
-			facts: { fullstack: true },
-			headings: [
-				"# Full-Stack Initial Setup",
-				"# Full-Stack Runtime",
-				"# Full-Stack Authentication",
-				"# Full-Stack Real-Time and Streaming",
-			],
-		},
-		{ facts: { platforms: ["server"] }, headings: ["# Server Initial Setup", "# Server Runtime"] },
-		{
-			facts: { platforms: ["web"] },
-			headings: ["# Web Initial Setup", "# Web Runtime", "# Web PWA Integration"],
-		},
-		{
-			facts: { platforms: ["desktop"] },
-			headings: ["# Desktop Initial Setup", "# Desktop Runtime", "# Desktop Custom Rendering"],
-		},
-		{
-			facts: { platforms: ["mobile"] },
-			headings: ["# Mobile Initial Setup", "# Mobile Runtime", "# Mobile Native Plug-Ins"],
-		},
+		{ facts: { fullstack: true }, headings: ["# Full-Stack Runtime"] },
+		{ facts: { platforms: ["server"] }, headings: ["# Server Runtime"] },
+		{ facts: { platforms: ["web"] }, headings: ["# Web Runtime"] },
+		{ facts: { platforms: ["desktop"] }, headings: ["# Desktop Runtime"] },
+		{ facts: { platforms: ["mobile"] }, headings: ["# Mobile Runtime"] },
 	];
 	const allConditionalHeadings = groups.flatMap((group) => group.headings);
+	const specialistHeadings = [
+		"# Full-Stack Initial Setup",
+		"# Full-Stack Authentication",
+		"# Full-Stack Real-Time and Streaming",
+		"# Server Initial Setup",
+		"# Web Initial Setup",
+		"# Web PWA Integration",
+		"# Desktop Initial Setup",
+		"# Desktop Custom Rendering",
+		"# Mobile Initial Setup",
+		"# Mobile Native Plug-Ins",
+	];
 	const coreOnly = render();
 	assert.doesNotMatch(coreOnly, /# Detected Dioxus Project|Workspace packages|Dioxus features/);
 	assert.match(coreOnly, /# Dioxus Core Context/);
@@ -625,5 +620,6 @@ test("Dioxus template follows every inclusion-matrix condition", () => {
 		for (const heading of allConditionalHeadings) {
 			if (!group.headings.includes(heading)) assert.ok(!rendered.includes(heading));
 		}
+		for (const heading of specialistHeadings) assert.ok(!rendered.includes(heading));
 	}
 });

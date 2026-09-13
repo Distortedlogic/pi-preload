@@ -14,24 +14,6 @@ Use current APIs from this version. Do not generate old `Scope`, `cx.render`, `u
 - Use `use_memo` for derived reactive values. Use `use_effect` for effects, not duplicated derived state.
 - Use `use_context_provider` for tree-scoped shared signals. Use `GlobalSignal` and `GlobalMemo` only for state that is truly application-wide.
 
-## Structured state
-
-Use the Store API for nested domain state that needs fine-grained reactivity:
-
-```rust
-#[derive(Store, Clone, PartialEq)]
-struct AppState {
-    items: Vec<Item>,
-}
-
-let state = use_store(|| AppState { items: Vec::new() });
-```
-
-- Generated lenses such as `state.items()` subscribe and mutate at the selected field.
-- Add domain operations with `#[store] impl<Lens> Store<State, Lens>`.
-- Prefer a store over a signal containing a large nested model that is repeatedly replaced.
-- Keep small component state in `use_signal`.
-
 ## Async hooks
 
 - `use_loader` is for data required by rendering. `use_loader(...)?` sends pending and failed state to Suspense and error boundaries and supports full-stack SSR transfer.
@@ -55,17 +37,7 @@ let state = use_store(|| AppState { items: Vec::new() });
 
 ## Assets and styling
 
-- `asset!` returns a build-managed `Asset`; keep reused assets in constants.
 - Attach CSS with `Stylesheet` and document metadata with `document::Title`, `document::Meta`, `document::Link`, and `document::Script`.
-- Use `#[css_module]` when scoped class names are required.
-- A root `tailwind.css` is detected by the Dioxus CLI. Its source scan must include Rust RSX:
-
-```css
-@import "tailwindcss";
-@source "./src/**/*.{rs,html,css}";
-```
-
-- Put styling in Tailwind or CSS assets. Rust can select class names, but it must not generate the styling system.
 
 ## Renderer-neutral element access
 

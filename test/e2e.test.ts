@@ -137,15 +137,13 @@ files:
 	assert.match(contextBlock.text, /^Context: dioxus\n\n/);
 	assert.doesNotMatch(contextBlock.text, /Detected Dioxus Project|Workspace packages|Dioxus features/);
 	assert.match(contextBlock.text, /# Dioxus Core Context/);
-	assert.match(contextBlock.text, /# Full-Stack Initial Setup/);
-	assert.match(contextBlock.text, /# Full-Stack Authentication/);
-	assert.match(contextBlock.text, /# Full-Stack Real-Time and Streaming/);
-	assert.match(contextBlock.text, /# Server Initial Setup/);
+	assert.match(contextBlock.text, /# Full-Stack Runtime/);
 	assert.match(contextBlock.text, /# Server Runtime/);
-	assert.match(contextBlock.text, /# Web Initial Setup/);
 	assert.match(contextBlock.text, /# Web Runtime/);
-	assert.match(contextBlock.text, /# Web PWA Integration/);
-	assert.doesNotMatch(contextBlock.text, /# Dioxus Routing|# Desktop|# Mobile/);
+	assert.doesNotMatch(
+		contextBlock.text,
+		/# Dioxus Routing|Initial Setup|Authentication|Real-Time and Streaming|PWA Integration|# Desktop|# Mobile/,
+	);
 	assert.deepEqual(preload.content[1], { type: "text", text: "File: app/src/lib.rs\n\npub fn app() {}\n" });
 	const tree = await readFile(join(project, "TREE.txt"), "utf8");
 	assert.deepEqual(preload.content[2], { type: "text", text: `File: TREE.txt\n\n${tree}` });

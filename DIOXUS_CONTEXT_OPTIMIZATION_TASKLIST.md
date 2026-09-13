@@ -193,10 +193,10 @@ The limits cover the accepted core rules and only the permitted deltas. The ambi
 
 **Depends on:** Work Unit 1
 
-- [ ] Add `skills/dioxus-specialized/SKILL.md` as a small routing skill.
-- [ ] Give the skill a precise description. Trigger it for Dioxus project setup, Store state, advanced routing, full-stack auth or streaming, custom server integration, PWA work, desktop platform integration, or mobile native integration. State that ordinary component edits do not need it.
-- [ ] Make `SKILL.md` select only the reference required by the current task. Do not load all references by default.
-- [ ] Create and prune task-specific references under `skills/dioxus-specialized/references/`:
+- [x] Add `skills/dioxus-specialized/SKILL.md` as a small routing skill.
+- [x] Give the skill a precise description. Trigger it for Dioxus project setup, Store state, advanced routing, full-stack auth or streaming, custom server integration, PWA work, desktop platform integration, or mobile native integration. State that ordinary component edits do not need it.
+- [x] Make `SKILL.md` select only the reference required by the current task. Do not load all references by default.
+- [x] Create and prune task-specific references under `skills/dioxus-specialized/references/`:
   - `project-setup.md` for renderer features, `Dioxus.toml`, commands, and initial target setup;
   - `state-store.md` for Store derivation, lenses, and `#[store]` domain operations;
   - `advanced-routing.md` for nests, layouts, redirects, query or hash state, catch-all routes, and scroll restoration;
@@ -207,11 +207,11 @@ The limits cover the accepted core rules and only the permitted deltas. The ambi
   - `web-pwa.md` for manifests, service workers, stable public assets, base paths, and custom HTML;
   - `desktop-integration.md` for menus, trays, windows, Wry events, child surfaces, WGPU, and externally driven documents;
   - `mobile-native.md` for permissions, Manganis FFI, Gradle, Swift packages, widgets, Live Activities, and platform fallbacks.
-- [ ] Move useful specialist facts from the current context files into the matching references before removing any preload include.
-- [ ] Remove basic teaching, repeated rationale, and generic examples from the references too.
-- [ ] Keep exact code only where syntax is easy to generate incorrectly, such as server-only extractors, Manganis declarations, Store extensions, and custom response conversion.
-- [ ] Do not duplicate a rule between preload content and a skill reference.
-- [ ] Verify that the existing `package.json` skill manifest already discovers the new skill. Change the manifest only if discovery requires it.
+- [x] Move useful specialist facts from the current context files into the matching references before removing any preload include.
+- [x] Remove basic teaching, repeated rationale, and generic examples from the references too.
+- [x] Keep exact code only where syntax is easy to generate incorrectly, such as server-only extractors, Manganis declarations, Store extensions, and custom response conversion.
+- [x] Do not duplicate a rule between preload content and a skill reference.
+- [x] Verify that the existing `package.json` skill manifest already discovers the new skill. Change the manifest only if discovery requires it.
 
 ### Exit Criteria
 
