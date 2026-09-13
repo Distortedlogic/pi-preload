@@ -106,28 +106,28 @@ type ContextFactsLoader = (input: {
 
 ## Work Unit 3: Add the shared Nunjucks renderer
 
-- [ ] Add `nunjucks` as an exact runtime dependency.
-- [ ] Add `@types/nunjucks` as a development dependency only if `nunjucks` does not provide sufficient types.
-- [ ] Update `package-lock.json` through npm after dependency changes.
-- [ ] Create one Nunjucks environment rooted at `DEFAULT_CONTEXT_DIRECTORY`.
-- [ ] Disable HTML escaping because output is Markdown.
-- [ ] Enable undefined-value errors.
-- [ ] Do not register command, filesystem, process, environment, import, or project-data helpers.
-- [ ] Render the fixed template `<name>/index.md.njk` with `{ facts }` and no other project state.
-- [ ] Let templates use normal package-owned includes below the context root.
-- [ ] Normalize rendered output to deterministic UTF-8 text with one final newline.
-- [ ] Treat an empty rendered result for an applicable source as a source error instead of adding an empty block.
-- [ ] Check cancellation immediately before and after synchronous template rendering.
-- [ ] Add the shared heading `Context: <name>\n\n` outside the template.
-- [ ] Keep source-specific headings and rendering code out of the collector.
+- [x] Add `nunjucks` as an exact runtime dependency.
+- [x] Add `@types/nunjucks` as a development dependency only if `nunjucks` does not provide sufficient types.
+- [x] Update `package-lock.json` through npm after dependency changes.
+- [x] Create one Nunjucks environment rooted at `DEFAULT_CONTEXT_DIRECTORY`.
+- [x] Disable HTML escaping because output is Markdown.
+- [x] Enable undefined-value errors.
+- [x] Do not register command, filesystem, process, environment, import, or project-data helpers.
+- [x] Render the fixed template `<name>/index.md.njk` with `{ facts }` and no other project state.
+- [x] Let templates use normal package-owned includes below the context root.
+- [x] Normalize rendered output to deterministic UTF-8 text with one final newline.
+- [x] Treat an empty rendered result for an applicable source as a source error instead of adding an empty block.
+- [x] Check cancellation immediately before and after synchronous template rendering.
+- [x] Add the shared heading `Context: <name>\n\n` outside the template.
+- [x] Keep source-specific headings and rendering code out of the collector.
 
 ### Acceptance checks
 
-- [ ] The same facts and package files produce byte-identical output.
-- [ ] Missing template data fails with a clear source-scoped rendering error.
-- [ ] Includes cannot resolve project files.
-- [ ] Templates receive no executable helper or host object.
-- [ ] Every source gets the same heading and output normalization rules.
+- [x] The same facts and package files produce byte-identical output.
+- [x] Missing template data fails with a clear source-scoped rendering error.
+- [x] Includes cannot resolve project files.
+- [x] Templates receive no executable helper or host object.
+- [x] Every source gets the same heading and output normalization rules.
 
 ## Work Unit 4: Integrate dynamic blocks without changing static collection
 

@@ -9,6 +9,7 @@ import { type ExtensionAPI, formatSize } from "@earendil-works/pi-coding-agent";
 import { fileTypeFromBuffer } from "file-type";
 import { globby, isDynamicPattern } from "globby";
 import { isBinaryFile } from "isbinaryfile";
+import nunjucks from "nunjucks";
 import pMap from "p-map";
 import { readYamlFile } from "read-yaml-file";
 import { Type } from "typebox";
@@ -189,15 +190,38 @@ async function loadContextSource(
 	return facts === undefined ? undefined : { name, facts };
 }
 
+function renderContextSource(
+	source: ContextSource,
+	environment: nunjucks.Environment,
+	signal: AbortSignal,
+): TextContent {
+	let rendered: string;
+	signal.throwIfAborted();
+	try {
+		rendered = environment.render(`${source.name}/${CONTEXT_TEMPLATE_FILE}`, { facts: source.facts });
+	} catch (error) {
+		signal.throwIfAborted();
+		throw contextSourceError(source.name, "render", error);
+	}
+	signal.throwIfAborted();
+	const markdown = rendered.replace(/\r\n?/g, "\n").trimEnd();
+	if (markdown.trim().length === 0) throw new Error(`Context source ${source.name} rendered empty content.`);
+	return { type: "text", text: `Context: ${source.name}\n\n${markdown}\n` };
+}
+
 async function loadContextSources(cwd: string, names: string[], contextDirectory: string, signal: AbortSignal) {
 	if (names.length === 0) return [];
 	const contextRoot = resolve(contextDirectory);
-	const sources: ContextSource[] = [];
+	const environment = new nunjucks.Environment(
+		new nunjucks.FileSystemLoader(contextRoot, { noCache: true }),
+		{ autoescape: false, throwOnUndefined: true },
+	);
+	const blocks: TextContent[] = [];
 	for (const name of names) {
 		const source = await loadContextSource(cwd, name, contextRoot, signal);
-		if (source) sources.push(source);
+		if (source) blocks.push(renderContextSource(source, environment, signal));
 	}
-	return sources;
+	return blocks;
 }
 
 function exceededTreeAllocation(error: unknown) {
