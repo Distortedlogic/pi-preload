@@ -20,6 +20,7 @@ const PRELOAD_CONFIG = Type.Object(
 	{
 		extends: Type.Optional(GLOB_LIST),
 		files: Type.Optional(GLOB_LIST),
+		contexts: Type.Optional(GLOB_LIST),
 	},
 	{ additionalProperties: false },
 );
@@ -65,29 +66,52 @@ function blockBytes(block: PreloadBlock) {
 	return block.type === "text" ? Buffer.byteLength(block.text) : Buffer.byteLength(block.data);
 }
 
-async function loadPatterns(
+type PreloadConfiguration = { files: string[]; contexts: string[] };
+
+const CONTEXT_NAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
+
+function validateContextName(name: string) {
+	const segments = name.split(/[\\/]/);
+	if (
+		isAbsolute(name) ||
+		segments.length !== 1 ||
+		segments.some((segment) => segment === "." || segment === "..") ||
+		!CONTEXT_NAME_PATTERN.test(name)
+	) {
+		throw new Error(`Invalid context source name: ${JSON.stringify(name)}`);
+	}
+}
+
+async function loadConfiguration(
 	configPath: string,
 	presetDirectory: string,
 	signal: AbortSignal,
 	ancestors: string[] = [],
-): Promise<string[]> {
+): Promise<PreloadConfiguration> {
 	const path = resolve(configPath);
 	if (ancestors.includes(path)) throw new Error(`Circular context preload preset: ${path}`);
 	const config = Value.Parse(PRELOAD_CONFIG, await readYamlFile(path));
-	const ownPatterns = config.files ?? [];
+	const ownFiles = config.files ?? [];
 	if (ancestors.length > 0) {
-		const relativePattern = ownPatterns.find(
+		const relativePattern = ownFiles.find(
 			(pattern) => !isAbsolute(pattern.startsWith("!") ? pattern.slice(1) : pattern),
 		);
 		if (relativePattern) throw new Error(`Context preload preset pattern must be absolute: ${relativePattern}`);
 	}
+	const ownContexts = config.contexts ?? [];
+	for (const context of ownContexts) validateContextName(context);
 	const inherited = await pMap(
 		config.extends ?? [],
 		async (preset) =>
-			loadPatterns(join(presetDirectory, `${preset}.yml`), presetDirectory, signal, [...ancestors, path]),
+			loadConfiguration(join(presetDirectory, `${preset}.yml`), presetDirectory, signal, [...ancestors, path]),
 		{ concurrency: CONCURRENCY, signal },
 	);
-	return [...inherited.flat(), ...ownPatterns];
+	return {
+		files: [...inherited.flatMap((configuration) => configuration.files), ...ownFiles],
+		contexts: [
+			...new Set([...inherited.flatMap((configuration) => configuration.contexts), ...ownContexts]),
+		],
+	};
 }
 
 function exceededTreeAllocation(error: unknown) {
@@ -211,7 +235,7 @@ export async function collectPreload(cwd: string, signal: AbortSignal, presetDir
 		throw new Error(`CONTEXT_PRELOAD.yml exceeds ${formatSize(MAX_FILE_BYTES)}.`);
 	}
 
-	const patterns = await loadPatterns(resolve(cwd, config.path), presetDirectory, signal);
+	const { files: patterns } = await loadConfiguration(resolve(cwd, config.path), presetDirectory, signal);
 	signal.throwIfAborted();
 	const includePatterns = patterns.filter((pattern) => !pattern.startsWith("!"));
 	const ignorePatterns = patterns.filter((pattern) => pattern.startsWith("!")).map((pattern) => pattern.slice(1));

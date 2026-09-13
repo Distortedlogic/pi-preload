@@ -59,25 +59,25 @@ type ContextFactsLoader = (input: {
 
 ## Work Unit 1: Extend the preload configuration contract
 
-- [ ] Add an optional `contexts` list of non-empty strings to `PRELOAD_CONFIG`.
-- [ ] Replace `loadPatterns` with a configuration loader that returns `{ files, contexts }`.
-- [ ] Keep the current preset recursion and circular-preset error.
-- [ ] Preserve the current inherited-file order and local-file order exactly.
-- [ ] Keep the rule that inherited file patterns must be absolute.
-- [ ] Merge inherited context names before local context names.
-- [ ] Deduplicate context names by first occurrence without sorting them.
-- [ ] Require each context name to be one safe package-directory slug.
-- [ ] Reject absolute names, separators, `.` segments, `..` segments, and empty names before path resolution.
-- [ ] Keep `additionalProperties: false` so unknown configuration properties still fail.
-- [ ] Add `presets/dioxus-rust.yml` with only `contexts: ["dioxus"]`.
-- [ ] Do not add project file globs to `dioxus-rust`; projects continue to select their own files.
+- [x] Add an optional `contexts` list of non-empty strings to `PRELOAD_CONFIG`.
+- [x] Replace `loadPatterns` with a configuration loader that returns `{ files, contexts }`.
+- [x] Keep the current preset recursion and circular-preset error.
+- [x] Preserve the current inherited-file order and local-file order exactly.
+- [x] Keep the rule that inherited file patterns must be absolute.
+- [x] Merge inherited context names before local context names.
+- [x] Deduplicate context names by first occurrence without sorting them.
+- [x] Require each context name to be one safe package-directory slug.
+- [x] Reject absolute names, separators, `.` segments, `..` segments, and empty names before path resolution.
+- [x] Keep `additionalProperties: false` so unknown configuration properties still fail.
+- [x] Add `presets/dioxus-rust.yml` with only `contexts: ["dioxus"]`.
+- [x] Do not add project file globs to `dioxus-rust`; projects continue to select their own files.
 
 ### Acceptance checks
 
-- [ ] Configurations that use only `extends` and `files` produce the same patterns and selected files as before.
-- [ ] Context inheritance follows preset order and then local order.
-- [ ] Repeated inherited and local names run once at their first position.
-- [ ] Unsafe names fail before any module load or template render.
+- [x] Configurations that use only `extends` and `files` produce the same patterns and selected files as before.
+- [x] Context inheritance follows preset order and then local order.
+- [x] Repeated inherited and local names run once at their first position.
+- [x] Unsafe names fail before any module load or template render.
 - [ ] `extends: ["dioxus-rust"]` selects the package directory `context/dioxus/`.
 
 ## Work Unit 2: Add convention-based source resolution
