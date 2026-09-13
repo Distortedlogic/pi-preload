@@ -22,26 +22,130 @@ Move a rule to a skill when the current task must concern setup, a specialist AP
 
 **Depends on:** None
 
-- [ ] Inventory every rendered rule from:
+- [x] Inventory every rendered rule from:
   - `context/dioxus/CORE.md`
   - `context/dioxus/ROUTER.md`
   - `context/dioxus/*/00-SETUP.md`
   - `context/dioxus/*/10-*.md`
   - `context/dioxus/*/20-*.md`
   - `context/dioxus/fullstack/30-REALTIME-STREAMING.md`
-- [ ] Classify each rule as `preload`, `skill`, or `delete` by the admission policy.
-- [ ] Record representative rendered byte counts in an existing test file for:
+- [x] Classify each rule as `preload`, `skill`, or `delete` by the admission policy.
+- [x] Record representative rendered byte counts in an existing test file for:
   - a core-only Dioxus package;
   - a router package;
   - a web and server full-stack package;
   - a multi-package workspace with unrelated Dioxus capabilities.
-- [ ] Define the permitted preload matrix:
+- [x] Define the permitted preload matrix:
   - core rules for every selected Dioxus 0.7.10 package;
   - a small router delta only when router use is certain;
   - a small full-stack delta only when full-stack use is certain;
   - small renderer deltas only when the selected package enables that renderer on its default path;
   - no setup or specialist integration content.
-- [ ] Set rendered byte budgets from the accepted minimal text. Use byte limits in existing tests. Do not add a tokenizer dependency.
+- [x] Set rendered byte budgets from the accepted minimal text. Use byte limits in existing tests. Do not add a tokenizer dependency.
+
+### Work Unit 1 Record
+
+Each semicolon-separated item below identifies one current rule or code example. A heading stays with its retained rules. A heading is removed when no rules remain under it.
+
+#### Rule Inventory
+
+- `context/dioxus/index.md.njk`
+  - `delete`: detected-project heading; package names; version requirements; declared features; forwarded features; default-path features.
+  - `preload`: conditional assembly only, as specified in the permitted matrix.
+- `context/dioxus/CORE.md`
+  - `preload`: Dioxus 0.7.10 target; rejection of `Scope`, `cx.render`, `use_state`, and old component-context APIs; copyable signal handles without clone work; `ReadSignal<T>` for reactive read access; `WriteSignal<T>` or `Signal<T>` only for mutation; `use_loader(...)?` for render data and SSR transfer; `use_action` for explicit operations; Dioxus APIs before lower-level platform APIs.
+  - `skill` → `state-store.md`: Store selection for large nested state; Store derive and `use_store` example; generated lenses; `#[store]` domain operations; Store versus signal selection.
+  - `skill` → `assets-tailwind.md`: reusable `asset!` values; CSS modules; Tailwind detection and source scan; dynamic asset and class selection.
+  - `delete`: signal read and write syntax; plain-value prop conversion; memo and effect teaching; context-provider and global-state teaching; `use_future`; `use_resource`; async-handler `Result`; component return type; callback props; prop-builder attributes; extended attributes; children; general RSX control flow; list keys; document-element list; general styling advice; `MountedData` and file-data examples that the lower-level API rule covers.
+- `context/dioxus/ROUTER.md`
+  - `preload`: route values must be `ReadSignal<T>` when reactive hooks must restart after navigation.
+  - `skill` → `advanced-routing.md`: typed `Routable`, `Router`, `Link`, and `Outlet`; typed path, query, hash, catch-all, layout, nest, and redirect declarations.
+- `context/dioxus/desktop/00-SETUP.md`
+  - `skill` → `project-setup.md`: setup-only scope; desktop feature table; `launch` versus configured `LaunchBuilder`; desktop `Dioxus.toml` fields; desktop `dx serve` command.
+- `context/dioxus/desktop/10-DESKTOP.md`
+  - `preload`: call local Rust directly without local HTTP or JavaScript IPC; use Dioxus window APIs before Tao or the WebView.
+  - `skill` → `project-setup.md`: initial window configuration; multi-renderer launch configuration; remote full-stack server URL.
+  - `skill` → `desktop-integration.md`: Wry event fallback; extra-window `VirtualDom` data; menu, tray, shortcut, and close APIs.
+  - `skill` → `assets-tailwind.md`: `use_asset_handler` only for runtime-generated or selected content.
+- `context/dioxus/desktop/20-CUSTOM-RENDERING.md`
+  - `skill` → `desktop-integration.md`: integration-level selection; child-surface host callback, root context, child window, and event bridge; `CustomPaintSource` lifecycle; device-bound renderer state; texture registration; `use_wgpu`; typed renderer-update channel; external `DioxusDocument`, viewport, waker, polling, painting, and input translation; limit custom paint to the required surface.
+- `context/dioxus/fullstack/00-SETUP.md`
+  - `skill` → `project-setup.md`: setup-only scope; full-stack renderer feature table; shared launch entry point; remote server URL for desktop or mobile.
+  - `preload`: current HTTP verb macro for a generated operation; shared wire types and server-feature boundary. These rules move to the small full-stack block.
+  - `delete`: greeting implementation and other placeholder code.
+- `context/dioxus/fullstack/10-FULLSTACK.md`
+  - `preload`: current HTTP verb macros; macro positions for path, query, body, and server-only extractor values; server-only extractors stay out of the client signature; automatic registration; direct Rust client calls and `reqwest` only for external endpoints; shared wire types and server-only implementation boundaries; loader SSR transfer and hydration reuse; normal `Result<T>` path; `HttpError` status behavior; `AsStatusCode`; SSR error-status commit.
+  - `skill` → `server-integration.md`: `IntoRequest`; `FromResponse`; matching custom `IntoResponse`; custom response conversion.
+  - `skill` → `fullstack-auth.md`, `fullstack-streaming.md`, or `server-integration.md`: forms, headers, redirects, streams, and raw Axum boundary selection.
+  - `skill` → `project-setup.md`: current-origin and remote-server URL selection.
+  - `delete`: repeated `use_action` details; optional `Loading` matching details.
+- `context/dioxus/fullstack/20-AUTH.md`
+  - `skill` → `fullstack-auth.md`: actions for authentication operations; typed forms; `SetHeader<SetCookie>`; `TypedHeader<Cookie>`; extractor position; login and account signatures; Axum session and auth layers; generated server-function boundary; package session extractor.
+  - `delete`: placeholder implementation comments; general advice to select a maintained authentication package.
+- `context/dioxus/fullstack/30-REALTIME-STREAMING.md`
+  - `skill` → `fullstack-streaming.md`: operation-to-wire-type table; WebSocket handle, reactive reconnect, upgrade, operations, Serde events, and encoding; SSE and typed stream adapters; stream aliases and encodings; disconnected producer behavior; file and byte conversion; streamed download; incremental consumption.
+- `context/dioxus/mobile/00-SETUP.md`
+  - `skill` → `project-setup.md`: setup-only scope; mobile feature table; shared launch; native metadata; target commands.
+  - `preload`: supported native permissions belong in `Dioxus.toml`. This rule moves to the small mobile block.
+  - `skill` → `mobile-native.md`: add native source directories only for a required native module.
+- `context/dioxus/mobile/10-MOBILE.md`
+  - `preload`: shared Rust UI and state; `target_os` boundaries; manifest-owned supported permissions and CLI mapping.
+  - `skill` → `project-setup.md`: bundle and platform metadata; remote full-stack server URL.
+  - `skill` → `mobile-native.md`: permission-state requests; native-module fallback; optional widget, Live Activity, background, and native layers.
+  - `delete`: general safe-area CSS advice.
+- `context/dioxus/mobile/20-NATIVE-PLUGIN.md`
+  - `skill` → `mobile-native.md`: native fallback test; Manganis declarations; generated signature matching; typed Rust boundary; Android library and Swift package paths; CLI build; manifest integration; permission mapping; widget extension fields; ActivityKit module identity; target guards; cross-renderer fallback; action boundary.
+- `context/dioxus/server/00-SETUP.md`
+  - `skill` → `project-setup.md`: setup-only scope; server feature table; optional server dependency setup; shared launch setup.
+  - `preload`: use custom serve only for middleware, injected state, or non-Dioxus routes; current verb macro; server-feature boundary. These rules move to the small server or full-stack block.
+  - `delete`: sample endpoint implementation.
+- `context/dioxus/server/10-SERVER.md`
+  - `preload`: default launch services; custom `dioxus::serve` and outer-router boundary; automatic server-function registration and typed-state exception; keep custom Axum code at the outer boundary.
+  - `skill` → `project-setup.md`: server-only renderer configuration.
+  - `skill` → `server-integration.md`: endpoint middleware; process-wide state choices; async initialization choices; injected `State<T>`; `FromRef<FullstackContext>`; request extensions.
+  - `delete`: repeated server-only extractor position.
+- `context/dioxus/web/00-SETUP.md`
+  - `skill` → `project-setup.md`: setup-only scope; web feature table; launch entry point; router selection; web `Dioxus.toml` fields; `dx serve`; no extra bundler or development server.
+  - `delete`: standard source layout.
+- `context/dioxus/web/10-WEB.md`
+  - `preload`: loader hydration reuse; browser-only work after mount or behind a target boundary; Dioxus event, mount, and document APIs before `web_sys` or direct DOM code.
+  - `skill` → `project-setup.md`: renderer selection and current-origin server URL.
+  - `skill` → `web-pwa.md`: custom HTML only when document components cannot express required behavior.
+  - `delete`: detailed `document::eval` channel teaching.
+- `context/dioxus/web/20-PWA.md`
+  - `skill` → `web-pwa.md`: public file layout; pre-mount manifest and worker registration; deployment base path; built public URL; stable public URLs versus fingerprinted assets; ordinary Rust assets.
+  - `delete`: general advice to keep application state and UI out of service-worker JavaScript.
+
+No rule has an unresolved destination. A moved code example stays only when its exact syntax prevents a likely Dioxus 0.7.10 error.
+
+#### Permitted Preload Matrix
+
+| Selected package fact | Permitted automatic content |
+| --- | --- |
+| Dioxus 0.7.10 package selected | Core block |
+| Direct normal `dioxus-router` dependency or active selected-package router feature | Core and router delta |
+| Active selected-package full-stack feature | Core and full-stack delta |
+| Active selected-package default-path `web` feature | Core and web runtime delta |
+| Active selected-package default-path `server` feature | Core and server runtime delta |
+| Active selected-package default-path `desktop` feature | Core and desktop runtime delta |
+| Active selected-package default-path `mobile` feature | Core and mobile runtime delta |
+| `native` feature | No native block; use the specialist skill |
+| Ambiguous workspace package selection | Core block only |
+
+Setup files, Store details, auth, streaming, custom server work, PWA work, desktop integration, and mobile native integration are never automatic content.
+
+#### Baselines and Budgets
+
+The values are UTF-8 bytes from the raw Nunjucks body render. Thus, the values include headings and conditional whitespace. `test/unit.test.ts` stores these values and limits.
+
+| Scenario | Baseline bytes | Final byte limit |
+| --- | ---: | ---: |
+| Core-only package | 3,861 | 1,200 |
+| Router package | 4,168 | 1,400 |
+| Web and server full-stack package | 14,634 | 3,000 |
+| Ambiguous workspace with unrelated capabilities | 22,008 | 1,200 |
+
+The limits cover the accepted core rules and only the permitted deltas. The ambiguous workspace limit is the core limit. No tokenizer is required.
 
 ### Exit Criteria
 

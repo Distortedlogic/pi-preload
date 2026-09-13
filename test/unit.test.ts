@@ -480,23 +480,73 @@ test("parseDioxusMetadata returns undefined without a workspace Dioxus dependenc
 	);
 });
 
-test("Dioxus template follows every inclusion-matrix condition", () => {
-	const environment = new nunjucks.Environment(
-		new nunjucks.FileSystemLoader(join(import.meta.dirname, "..", "context"), { noCache: true }),
-		{ autoescape: false, throwOnUndefined: true },
+const dioxusEnvironment = new nunjucks.Environment(
+	new nunjucks.FileSystemLoader(join(import.meta.dirname, "..", "context"), { noCache: true }),
+	{ autoescape: false, throwOnUndefined: true },
+);
+const dioxusBaseFacts: DioxusFacts = {
+	packageNames: ["app"],
+	versionRequirements: ["^0.7"],
+	declaredFeatures: [],
+	forwardedFeatures: [],
+	defaultFeatures: [],
+	platforms: [],
+	fullstack: false,
+	router: false,
+};
+const dioxusContextScenarios = {
+	coreOnly: dioxusBaseFacts,
+	router: { ...dioxusBaseFacts, router: true },
+	fullstackWebServer: {
+		...dioxusBaseFacts,
+		declaredFeatures: ["fullstack", "server", "web"],
+		defaultFeatures: ["fullstack", "server", "web"],
+		platforms: ["server", "web"],
+		fullstack: true,
+	},
+	unrelatedWorkspace: {
+		...dioxusBaseFacts,
+		packageNames: ["desktop-app", "mobile-app", "web-server-app"],
+		declaredFeatures: ["desktop", "fullstack", "mobile", "server", "web"],
+		forwardedFeatures: ["router"],
+		defaultFeatures: ["desktop", "fullstack", "mobile", "server", "web"],
+		platforms: ["desktop", "mobile", "server", "web"],
+		fullstack: true,
+		router: true,
+	},
+} satisfies Record<string, DioxusFacts>;
+const dioxusContextBaselineBytes = {
+	coreOnly: 3861,
+	router: 4168,
+	fullstackWebServer: 14634,
+	unrelatedWorkspace: 22008,
+} satisfies Record<keyof typeof dioxusContextScenarios, number>;
+const dioxusContextByteBudgets = {
+	coreOnly: 1200,
+	router: 1400,
+	fullstackWebServer: 3000,
+	unrelatedWorkspace: 1200,
+} satisfies Record<keyof typeof dioxusContextScenarios, number>;
+
+function renderDioxusContext(facts: DioxusFacts) {
+	return dioxusEnvironment.render("dioxus/index.md.njk", { facts });
+}
+
+test("locks representative Dioxus context baseline byte counts and budgets", () => {
+	const renderedBytes = Object.fromEntries(
+		Object.entries(dioxusContextScenarios).map(([name, facts]) => [
+			name,
+			Buffer.byteLength(renderDioxusContext(facts)),
+		]),
 	);
-	const baseFacts: DioxusFacts = {
-		packageNames: ["app"],
-		versionRequirements: ["^0.7"],
-		declaredFeatures: [],
-		forwardedFeatures: [],
-		defaultFeatures: [],
-		platforms: [],
-		fullstack: false,
-		router: false,
-	};
-	const render = (facts: Partial<DioxusFacts> = {}) =>
-		environment.render("dioxus/index.md.njk", { facts: { ...baseFacts, ...facts } });
+	assert.deepEqual(renderedBytes, dioxusContextBaselineBytes);
+	for (const name of Object.keys(dioxusContextScenarios) as Array<keyof typeof dioxusContextScenarios>) {
+		assert.ok(dioxusContextByteBudgets[name] < dioxusContextBaselineBytes[name]);
+	}
+});
+
+test("Dioxus template follows every inclusion-matrix condition", () => {
+	const render = (facts: Partial<DioxusFacts> = {}) => renderDioxusContext({ ...dioxusBaseFacts, ...facts });
 	const groups: Array<{ facts: Partial<DioxusFacts>; headings: string[] }> = [
 		{ facts: { router: true }, headings: ["# Dioxus Routing"] },
 		{
