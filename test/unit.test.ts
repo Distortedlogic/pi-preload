@@ -32,10 +32,7 @@ async function writeContextSource(
 	const sourceDirectory = join(contextDirectory, name);
 	await mkdir(sourceDirectory, { recursive: true });
 	const writes = [
-		writeFile(
-			join(sourceDirectory, "facts.ts"),
-			options.facts ?? "export default async function () { return {}; }\n",
-		),
+		writeFile(join(sourceDirectory, "facts.ts"), options.facts ?? "export default async function () { return {}; }\n"),
 		writeFile(join(sourceDirectory, "index.md.njk"), options.template),
 	];
 	for (const [path, content] of Object.entries(options.fragments ?? {})) {
@@ -96,9 +93,7 @@ test("collectPreload merges named presets with local globs", async (t) => {
 
 	assert.ok(result);
 	assert.equal(result.count, 2);
-	const paths = textBlocks(result.blocks.slice(0, -1)).map((block) =>
-		block.text.slice(6, block.text.indexOf("\n\n")),
-	);
+	const paths = textBlocks(result.blocks.slice(0, -1)).map((block) => block.text.slice(6, block.text.indexOf("\n\n")));
 	assert.deepEqual(paths, ["local.txt", join(project, "src", "included.ts")]);
 });
 
@@ -122,9 +117,7 @@ test("collectPreload excludes ignored and lock files from content and tree", asy
 
 	assert.ok(result);
 	assert.equal(result.count, 2);
-	const paths = textBlocks(result.blocks.slice(0, -1)).map((block) =>
-		block.text.slice(6, block.text.indexOf("\n\n")),
-	);
+	const paths = textBlocks(result.blocks.slice(0, -1)).map((block) => block.text.slice(6, block.text.indexOf("\n\n")));
 	assert.deepEqual(paths, ["CONTEXT_PRELOAD.yml", "source.ts"]);
 	const tree = await readFile(join(project, "TREE.txt"), "utf8");
 	const treeBlock = textBlocks(result.blocks.slice(-1))[0];
@@ -160,9 +153,7 @@ test("collectPreload rejects an explicitly selected non-image binary", async (t)
 test("collectPreload inherits and deduplicates context names in order", async (t) => {
 	const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
 	await Promise.all(
-		["first", "second", "third"].map((name) =>
-			writeContextSource(contextDirectory, name, { template: `${name}\n` }),
-		),
+		["first", "second", "third"].map((name) => writeContextSource(contextDirectory, name, { template: `${name}\n` })),
 	);
 	await Promise.all([
 		writeFile(
@@ -173,12 +164,7 @@ test("collectPreload inherits and deduplicates context names in order", async (t
 		writeFile(join(presetDirectory, "extra.yml"), JSON.stringify({ contexts: ["second", "third"] })),
 	]);
 
-	const result = await collectPreload(
-		project,
-		AbortSignal.timeout(5_000),
-		presetDirectory,
-		contextDirectory,
-	);
+	const result = await collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory);
 
 	assert.ok(result);
 	assert.equal(result.count, 0);
@@ -234,12 +220,7 @@ test("collectPreload does not import an unselected context source", async (t) =>
 		writeFile(join(project, "selected.txt"), "selected"),
 	]);
 
-	const result = await collectPreload(
-		project,
-		AbortSignal.timeout(5_000),
-		presetDirectory,
-		contextDirectory,
-	);
+	const result = await collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory);
 
 	assert.ok(result);
 	assert.equal(result.count, 1);
@@ -256,12 +237,7 @@ test("collectPreload skips rendering when context facts are undefined", async (t
 		writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify({ contexts: ["not-applicable"] })),
 	]);
 
-	const result = await collectPreload(
-		project,
-		AbortSignal.timeout(5_000),
-		presetDirectory,
-		contextDirectory,
-	);
+	const result = await collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory);
 
 	assert.ok(result);
 	assert.equal(result.count, 0);
@@ -278,19 +254,11 @@ test("collectPreload renders package context before files with one final newline
 			template: 'Project: {{ facts.name }}\r\n{% include "sample/fragment.md" %}',
 			fragments: { "fragment.md": "Fragment: {{ facts.detail }}\r\n" },
 		}),
-		writeFile(
-			join(project, "CONTEXT_PRELOAD.yml"),
-			JSON.stringify({ contexts: ["sample"], files: ["selected.txt"] }),
-		),
+		writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify({ contexts: ["sample"], files: ["selected.txt"] })),
 		writeFile(join(project, "selected.txt"), "selected"),
 	]);
 
-	const result = await collectPreload(
-		project,
-		AbortSignal.timeout(5_000),
-		presetDirectory,
-		contextDirectory,
-	);
+	const result = await collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory);
 
 	assert.ok(result);
 	assert.equal(result.count, 1);
@@ -362,10 +330,7 @@ test("collectPreload applies dynamic block and combined context limits", async (
 			names.map((name) => writeContextSource(contextDirectory, name, { template: "x".repeat(255 * 1024) })),
 		);
 		await Promise.all([
-			writeFile(
-				join(project, "CONTEXT_PRELOAD.yml"),
-				JSON.stringify({ contexts: names, files: ["selected.txt"] }),
-			),
+			writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify({ contexts: names, files: ["selected.txt"] })),
 			writeFile(join(project, "selected.txt"), "x".repeat(8 * 1024)),
 		]);
 
@@ -378,7 +343,7 @@ test("collectPreload applies dynamic block and combined context limits", async (
 
 test("parseDioxusMetadata detects workspace Dioxus dependency forms", () => {
 	const requirements = ["^0.7", "~0.7", "=0.7.10", ">=0.7", "0.7"];
-	const metadata = {
+	const metadata: Parameters<typeof parseDioxusMetadata>[0] = {
 		packages: [
 			{
 				id: "direct",
@@ -395,17 +360,13 @@ test("parseDioxusMetadata detects workspace Dioxus dependency forms", () => {
 			{
 				id: "renamed",
 				name: "renamed-app",
-				dependencies: [
-					{ name: "dioxus", rename: "dx", req: requirements[2], kind: null, features: ["desktop"] },
-				],
+				dependencies: [{ name: "dioxus", rename: "dx", req: requirements[2], kind: null, features: ["desktop"] }],
 				features: { desktop: ["dx/desktop"] },
 			},
 			{
 				id: "optional",
 				name: "optional-app",
-				dependencies: [
-					{ name: "dioxus", req: requirements[3], kind: null, optional: true, features: ["mobile"] },
-				],
+				dependencies: [{ name: "dioxus", req: requirements[3], kind: null, optional: true, features: ["mobile"] }],
 				features: {},
 			},
 			{
@@ -416,7 +377,7 @@ test("parseDioxusMetadata detects workspace Dioxus dependency forms", () => {
 						name: "dioxus",
 						req: requirements[4],
 						kind: null,
-						target: "cfg(target_arch = \"wasm32\")",
+						target: 'cfg(target_arch = "wasm32")',
 						features: ["native"],
 					},
 				],
@@ -454,9 +415,7 @@ test("parseDioxusMetadata separates direct, forwarded, and recursive default fea
 			{
 				id: "app",
 				name: "app",
-				dependencies: [
-					{ name: "dioxus", rename: "dx", req: "^0.7", kind: null, features: ["fullstack", "web"] },
-				],
+				dependencies: [{ name: "dioxus", rename: "dx", req: "^0.7", kind: null, features: ["fullstack", "web"] }],
 				features: {
 					default: ["ui"],
 					ui: ["dx/mobile", "nested"],

@@ -24,6 +24,8 @@ interface CargoDependencyMetadata {
 	req?: string;
 	kind?: string | null;
 	features?: string[];
+	optional?: boolean;
+	target?: string | null;
 }
 
 interface CargoPackageMetadata {

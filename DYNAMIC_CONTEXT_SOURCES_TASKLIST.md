@@ -353,28 +353,28 @@ type ContextFactsLoader = (input: {
 
 ## Work Unit 11: Run final validation
 
-- [ ] Run `npm run typecheck`.
-- [ ] Run `npm run lint`.
-- [ ] Run `npm run test:unit`.
-- [ ] Run `npm run test:e2e`.
-- [ ] Run `npm run check` as the final combined code verification.
-- [ ] Run `npm pack --dry-run` and inspect the package file list.
-- [ ] Run `collectPreload` against an isolated Dioxus workspace with selected web and server/full-stack facts.
-- [ ] Confirm that desktop and mobile guidance is absent from that result.
-- [ ] Run a static-only preload and confirm that no context module or Cargo process runs.
-- [ ] Confirm dynamic block bytes, total context bytes, selected-file count, and selected-file bytes.
-- [ ] Confirm that `TREE.txt` remains the final block.
-- [ ] Confirm that the worktree contains only intended source, context, preset, test, documentation, dependency, and lock changes.
-- [ ] Commit the implementation with a minimal accurate message.
+- [x] Run `npm run typecheck`.
+- [x] Run `npm run lint`.
+- [x] Run `npm run test:unit`.
+- [x] Run `npm run test:e2e`.
+- [x] Run `npm run check` as the final combined code verification.
+- [x] Run `npm pack --dry-run` and inspect the package file list.
+- [x] Run `collectPreload` against an isolated Dioxus workspace with selected web and server/full-stack facts.
+- [x] Confirm that desktop and mobile guidance is absent from that result.
+- [x] Run a static-only preload and confirm that no context module or Cargo process runs.
+- [x] Confirm dynamic block bytes, total context bytes, selected-file count, and selected-file bytes.
+- [x] Confirm that `TREE.txt` remains the final block.
+- [x] Confirm that the worktree contains only intended source, context, preset, test, documentation, dependency, and lock changes.
+- [x] Commit the implementation with a minimal accurate message.
 
 ## Completion criteria
 
-- [ ] A configured context name resolves directly to `context/<name>/` with no registry or central source-specific branch.
-- [ ] A future package-owned context source can be added without changing generic collector code.
-- [ ] `extends: ["dioxus-rust"]` enables facts-based Dioxus context generation.
-- [ ] The Dioxus template is the readable source of fragment-selection policy.
-- [ ] All current Dioxus Markdown is accounted for under `context/dioxus/`.
-- [ ] Static preload behavior remains compatible.
-- [ ] Dynamic context obeys cancellation and byte limits.
-- [ ] Project code and project templates are never loaded as context implementations.
-- [ ] Unit, end-to-end, combined, and package checks pass.
+- [x] A configured context name resolves directly to `context/<name>/` with no registry or central source-specific branch.
+- [x] A future package-owned context source can be added without changing generic collector code.
+- [x] `extends: ["dioxus-rust"]` enables facts-based Dioxus context generation.
+- [x] The Dioxus template is the readable source of fragment-selection policy.
+- [x] All current Dioxus Markdown is accounted for under `context/dioxus/`.
+- [x] Static preload behavior remains compatible.
+- [x] Dynamic context obeys cancellation and byte limits.
+- [x] Project code and project templates are never loaded as context implementations.
+- [x] Unit, end-to-end, combined, and package checks pass.

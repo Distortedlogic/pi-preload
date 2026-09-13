@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import type { Stats } from "node:fs";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -71,10 +72,7 @@ function blockBytes(block: PreloadBlock) {
 }
 
 type PreloadConfiguration = { files: string[]; contexts: string[] };
-type ContextFactsLoader = (input: {
-	cwd: string;
-	signal: AbortSignal;
-}) => Promise<Record<string, unknown> | undefined>;
+type ContextFactsLoader = (input: { cwd: string; signal: AbortSignal }) => Promise<Record<string, unknown> | undefined>;
 type ContextSource = { name: string; facts: Record<string, unknown> };
 
 const CONTEXT_NAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
@@ -117,19 +115,14 @@ async function loadConfiguration(
 	);
 	return {
 		files: [...inherited.flatMap((configuration) => configuration.files), ...ownFiles],
-		contexts: [
-			...new Set([...inherited.flatMap((configuration) => configuration.contexts), ...ownContexts]),
-		],
+		contexts: [...new Set([...inherited.flatMap((configuration) => configuration.contexts), ...ownContexts])],
 	};
 }
 
 function isPathInside(directory: string, path: string) {
 	const relativePath = relative(directory, path);
 	return (
-		relativePath !== "" &&
-		relativePath !== ".." &&
-		!relativePath.startsWith(`..${sep}`) &&
-		!isAbsolute(relativePath)
+		relativePath !== "" && relativePath !== ".." && !relativePath.startsWith(`..${sep}`) && !isAbsolute(relativePath)
 	);
 }
 
@@ -156,7 +149,7 @@ async function loadContextSource(
 ): Promise<ContextSource | undefined> {
 	const { factsPath, templatePath } = resolveContextSourcePaths(contextRoot, name);
 	signal.throwIfAborted();
-	let entryStats;
+	let entryStats: Stats[];
 	try {
 		entryStats = await Promise.all([stat(factsPath), stat(templatePath)]);
 	} catch {
@@ -212,10 +205,10 @@ function renderContextSource(
 async function loadContextSources(cwd: string, names: string[], contextDirectory: string, signal: AbortSignal) {
 	if (names.length === 0) return [];
 	const contextRoot = resolve(contextDirectory);
-	const environment = new nunjucks.Environment(
-		new nunjucks.FileSystemLoader(contextRoot, { noCache: true }),
-		{ autoescape: false, throwOnUndefined: true },
-	);
+	const environment = new nunjucks.Environment(new nunjucks.FileSystemLoader(contextRoot, { noCache: true }), {
+		autoescape: false,
+		throwOnUndefined: true,
+	});
 	const blocks: TextContent[] = [];
 	for (const name of names) {
 		const source = await loadContextSource(cwd, name, contextRoot, signal);

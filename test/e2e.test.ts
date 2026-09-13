@@ -51,10 +51,7 @@ test("Pi preloads detected Dioxus context from an offline local workspace", { ti
 	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-e2e-"));
 	const app = join(project, "app");
 	const dioxus = join(project, "vendor", "dioxus");
-	await Promise.all([
-		mkdir(join(app, "src"), { recursive: true }),
-		mkdir(join(dioxus, "src"), { recursive: true }),
-	]);
+	await Promise.all([mkdir(join(app, "src"), { recursive: true }), mkdir(join(dioxus, "src"), { recursive: true })]);
 	await Promise.all([
 		writeFile(
 			join(project, "Cargo.toml"),
