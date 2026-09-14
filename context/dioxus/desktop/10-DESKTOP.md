@@ -1,4 +1,4 @@
 # Desktop Runtime
 
-- Call local Rust libraries directly. Do not add local HTTP or JavaScript IPC between the desktop UI and Rust in the same process.
+- Call Rust code in the same process directly. Do not add HTTP, server functions, or JavaScript IPC between local Rust components.
 - Use `dioxus::desktop::window()` before Tao, Wry, or direct WebView APIs.
