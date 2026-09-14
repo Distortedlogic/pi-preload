@@ -3,7 +3,7 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
 const MAX_METADATA_BYTES = 16 * 1024 * 1024;
-const DIOXUS_PLATFORMS = ["desktop", "mobile", "native", "server", "web"] as const;
+const DIOXUS_PLATFORMS = ["desktop", "mobile", "server", "web"] as const;
 const execFileAsync = promisify(execFile);
 
 type DioxusPlatform = (typeof DIOXUS_PLATFORMS)[number];
@@ -32,7 +32,6 @@ interface CargoPackageMetadata {
 interface CargoMetadata {
 	packages: CargoPackageMetadata[];
 	workspace_members: string[];
-	workspace_default_members: string[];
 	workspace_root: string;
 }
 
@@ -60,7 +59,7 @@ function forwardedDioxusFeature(entry: string, dependencyKeys: Set<string>) {
 	return entry.slice(separator + 1);
 }
 
-function collectDefaultDioxusFeatures(features: Record<string, string[]>, dependencyKeys: Set<string>) {
+function collectDeclaredDioxusFeatures(features: Record<string, string[]>, dependencyKeys: Set<string>) {
 	const collected = new Set<string>();
 	const visited = new Set<string>();
 	const visit = (feature: string) => {
@@ -75,7 +74,7 @@ function collectDefaultDioxusFeatures(features: Record<string, string[]>, depend
 			}
 		}
 	};
-	visit("default");
+	for (const feature of Object.keys(features)) visit(feature);
 	return collected;
 }
 
@@ -109,11 +108,11 @@ function collectDioxusPackages(metadata: CargoMetadata) {
 	return packages;
 }
 
-function selectDioxusPackage(
+function selectDioxusPackages(
 	packages: DioxusPackageMetadata[],
 	metadata: CargoMetadata,
 	cwd: string,
-): DioxusPackageMetadata | undefined {
+): DioxusPackageMetadata[] {
 	const workspaceRoot = resolve(metadata.workspace_root);
 	const resolvedCwd = resolve(workspaceRoot, cwd);
 	const containingPackages = packages.filter((candidate) =>
@@ -121,16 +120,11 @@ function selectDioxusPackage(
 	);
 	if (containingPackages.length > 0) {
 		const maximumDepth = Math.max(...containingPackages.map((candidate) => pathDepth(candidate.manifestDirectory)));
-		const deepestPackages = containingPackages.filter(
-			(candidate) => pathDepth(candidate.manifestDirectory) === maximumDepth,
-		);
-		return deepestPackages.length === 1 ? deepestPackages[0] : undefined;
+		return containingPackages.filter((candidate) => pathDepth(candidate.manifestDirectory) === maximumDepth);
 	}
 
-	const defaultMembers = new Set(metadata.workspace_default_members);
-	const defaultPackages = packages.filter((candidate) => defaultMembers.has(candidate.packageMetadata.id));
-	if (defaultPackages.length === 1) return defaultPackages[0];
-	return packages.length === 1 ? packages[0] : undefined;
+	const nestedPackages = packages.filter((candidate) => isPathInsideOrEqual(resolvedCwd, candidate.manifestDirectory));
+	return nestedPackages.length > 0 ? nestedPackages : packages;
 }
 
 export function parseDioxusMetadata(
@@ -139,21 +133,24 @@ export function parseDioxusMetadata(
 ): DioxusFacts | undefined {
 	const packages = collectDioxusPackages(metadata);
 	if (packages.length === 0) return;
-	const selectedPackage = selectDioxusPackage(packages, metadata, cwd);
-	if (!selectedPackage) return { platforms: [], fullstack: false, router: false };
-
-	const dependencyKeys = new Set(selectedPackage.dioxusDependencies.map(dependencyKey));
-	const capabilities = new Set(selectedPackage.dioxusDependencies.flatMap((dependency) => dependency.features ?? []));
-	for (const feature of collectDefaultDioxusFeatures(selectedPackage.packageMetadata.features ?? {}, dependencyKeys)) {
-		capabilities.add(feature);
+	const selectedPackages = selectDioxusPackages(packages, metadata, cwd);
+	const capabilities = new Set<string>();
+	let router = false;
+	for (const selectedPackage of selectedPackages) {
+		for (const dependency of selectedPackage.dioxusDependencies) {
+			for (const feature of dependency.features ?? []) capabilities.add(feature);
+		}
+		const dependencyKeys = new Set(selectedPackage.dioxusDependencies.map(dependencyKey));
+		for (const feature of collectDeclaredDioxusFeatures(selectedPackage.packageMetadata.features ?? {}, dependencyKeys)) {
+			capabilities.add(feature);
+		}
+		router ||= selectedPackage.dependencies.some((dependency) => dependency.name === "dioxus-router");
 	}
 
 	return {
 		platforms: DIOXUS_PLATFORMS.filter((platform) => capabilities.has(platform)),
 		fullstack: capabilities.has("fullstack"),
-		router:
-			selectedPackage.dependencies.some((dependency) => dependency.name === "dioxus-router") ||
-			capabilities.has("router"),
+		router: router || capabilities.has("router"),
 	};
 }
 
