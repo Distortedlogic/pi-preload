@@ -55,6 +55,7 @@ const MAX_TOTAL_BYTES = 1024 * 1024;
 const MAX_FILES = 1000;
 const MAX_TREE_BYTES = 16 * 1024;
 const TREE_FILE = "TREE.txt";
+const PRELOAD_FILE = "PRELOAD.md";
 const TREE_BLOCK_HEADING = `File: ${TREE_FILE}\n\n`;
 const MAX_TREE_OUTPUT_BYTES = MAX_TREE_BYTES - Buffer.byteLength(TREE_BLOCK_HEADING) - 1;
 const ON_DEMAND_TREE_DIRECTORIES = new Set(["__tests__", "test", "tests"]);
@@ -69,6 +70,14 @@ type PreloadBlock = TextContent | ImageContent;
 
 function blockBytes(block: PreloadBlock) {
 	return block.type === "text" ? Buffer.byteLength(block.text) : Buffer.byteLength(block.data);
+}
+
+function serializePreloadBlocks(blocks: PreloadBlock[]) {
+	return `${blocks
+		.map((block) =>
+			block.type === "text" ? block.text : `![Preloaded image](data:${block.mimeType};base64,${block.data})`,
+		)
+		.join("\n\n")}\n`;
 }
 
 type PreloadConfiguration = { files: string[]; contexts: string[] };
@@ -258,6 +267,7 @@ async function collectFilesystemTree(cwd: string, ignorePatterns: string[], sign
 				"**/.git/**",
 				"CONTEXT_PRELOAD.yml",
 				TREE_FILE,
+				PRELOAD_FILE,
 				...LOCK_FILE_GLOBS,
 				...ignorePatterns,
 			],
@@ -363,7 +373,7 @@ export async function collectPreload(
 			: await globby(includePatterns, {
 					cwd,
 					gitignore: true,
-					ignore: [TREE_FILE, ...LOCK_FILE_GLOBS, ...ignorePatterns],
+					ignore: [TREE_FILE, PRELOAD_FILE, ...LOCK_FILE_GLOBS, ...ignorePatterns],
 					onlyFiles: true,
 					followSymbolicLinks: false,
 					unique: true,
@@ -449,12 +459,14 @@ export async function collectPreload(
 	}
 
 	signal.throwIfAborted();
-	blocks.push(await collectFilesystemTree(cwd, ignorePatterns, signal));
+	const treeBlock = await collectFilesystemTree(cwd, ignorePatterns, signal);
 	signal.throwIfAborted();
+	blocks.push(treeBlock);
 	const contextBytes = blocks.reduce((total, block) => total + blockBytes(block), 0);
 	if (contextBytes > MAX_TOTAL_BYTES + MAX_TREE_BYTES) {
 		throw new Error(`Context with filesystem tree is over ${formatSize(MAX_TOTAL_BYTES + MAX_TREE_BYTES)}.`);
 	}
+	await writeFile(resolve(cwd, PRELOAD_FILE), serializePreloadBlocks(blocks), { encoding: "utf8", signal });
 	return { blocks, count: files.length, bytes: loadedBytes };
 }
 

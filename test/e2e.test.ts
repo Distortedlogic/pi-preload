@@ -42,6 +42,10 @@ test("Pi adds preloaded file contents and a filesystem tree to a fresh session",
 	assert.deepEqual(preload.content[0], { type: "text", text: "File: nested/context.txt\n\ne2e preloaded text" });
 	const tree = await readFile(join(project, "TREE.txt"), "utf8");
 	assert.deepEqual(preload.content[1], { type: "text", text: `File: TREE.txt\n\n${tree}` });
+	assert.equal(
+		await readFile(join(project, "PRELOAD.md"), "utf8"),
+		`File: nested/context.txt\n\ne2e preloaded text\n\nFile: TREE.txt\n\n${tree}\n`,
+	);
 	assert.match(tree, /nested/);
 	assert.match(tree, /test/);
 	assert.doesNotMatch(tree, /deep\.test\.ts|CONTEXT_PRELOAD\.yml|TREE\.txt|uv\.lock/);

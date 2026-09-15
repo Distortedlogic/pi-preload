@@ -14,6 +14,14 @@ function textBlocks(blocks: PreloadResult["blocks"]): TextContent[] {
 	return blocks.filter((block): block is TextContent => block.type === "text");
 }
 
+function preloadSnapshot(blocks: PreloadResult["blocks"]) {
+	return `${blocks
+		.map((block) =>
+			block.type === "text" ? block.text : `![Preloaded image](data:${block.mimeType};base64,${block.data})`,
+		)
+		.join("\n\n")}\n`;
+}
+
 async function createDynamicFixture(t: TestContext) {
 	const root = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
 	t.after(async () => rm(root, { recursive: true, force: true }));
@@ -102,7 +110,7 @@ test("collectPreload excludes ignored and lock files from content and tree", asy
 	t.after(async () => rm(project, { recursive: true, force: true }));
 	await Promise.all([mkdir(join(project, ".git")), mkdir(join(project, "ignored")), mkdir(join(project, "nested"))]);
 	await Promise.all([
-		writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify({ files: ["**/*", "!excluded.ts"] })),
+		writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify({ files: ["**/*", "PRELOAD.md", "!excluded.ts"] })),
 		writeFile(join(project, ".gitignore"), "ignored/\n"),
 		writeFile(join(project, ".toolrc"), "hidden configuration"),
 		writeFile(join(project, "source.ts"), "source"),
@@ -122,13 +130,27 @@ test("collectPreload excludes ignored and lock files from content and tree", asy
 	const tree = await readFile(join(project, "TREE.txt"), "utf8");
 	const treeBlock = textBlocks(result.blocks.slice(-1))[0];
 	assert.equal(treeBlock?.text, `File: TREE.txt\n\n${tree}`);
+	assert.equal(await readFile(join(project, "PRELOAD.md"), "utf8"), preloadSnapshot(result.blocks));
 	assert.match(tree, /\.gitignore/);
 	assert.match(tree, /\.toolrc/);
 	assert.match(tree, /source\.ts/);
 	assert.doesNotMatch(
 		tree,
-		/CONTEXT_PRELOAD\.yml|TREE\.txt|excluded\.ts|package-lock\.json|uv\.lock|secret\.txt|\.git\/config/,
+		/CONTEXT_PRELOAD\.yml|PRELOAD\.md|TREE\.txt|excluded\.ts|package-lock\.json|uv\.lock|secret\.txt|\.git\/config/,
 	);
+
+	await writeFile(join(project, "PRELOAD.md"), "stale snapshot");
+	const repeatedResult = await collectPreload(project, AbortSignal.timeout(5_000));
+	assert.ok(repeatedResult);
+	assert.equal(repeatedResult.count, 2);
+	assert.doesNotMatch(
+		textBlocks(repeatedResult.blocks)
+			.map((block) => block.text)
+			.join("\n"),
+		/^File: PRELOAD\.md$/m,
+	);
+	assert.doesNotMatch(await readFile(join(project, "TREE.txt"), "utf8"), /PRELOAD\.md/);
+	assert.equal(await readFile(join(project, "PRELOAD.md"), "utf8"), preloadSnapshot(repeatedResult.blocks));
 });
 
 test("collectPreload rejects an invalid glob list", async (t) => {
@@ -148,6 +170,29 @@ test("collectPreload rejects an explicitly selected non-image binary", async (t)
 	]);
 
 	await assert.rejects(collectPreload(project, AbortSignal.timeout(5_000)), /explicitly selected binary file/);
+});
+
+test("collectPreload snapshots image blocks in returned order", async (t) => {
+	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
+	t.after(async () => rm(project, { recursive: true, force: true }));
+	const image = Buffer.from(
+		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+		"base64",
+	);
+	await Promise.all([
+		writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify({ files: ["image.png"] })),
+		writeFile(join(project, "image.png"), image),
+	]);
+
+	const result = await collectPreload(project, AbortSignal.timeout(5_000));
+
+	assert.ok(result);
+	assert.equal(result.blocks[0]?.type, "text");
+	assert.equal(result.blocks[1]?.type, "image");
+	assert.equal(result.blocks[2]?.type, "text");
+	const snapshot = await readFile(join(project, "PRELOAD.md"), "utf8");
+	assert.equal(snapshot, preloadSnapshot(result.blocks));
+	assert.ok(snapshot.includes(`data:image/png;base64,${image.toString("base64")}`));
 });
 
 test("collectPreload inherits and deduplicates context names in order", async (t) => {
@@ -267,6 +312,10 @@ test("collectPreload renders package context before files with one final newline
 	assert.equal(blocks[0]?.text, "Context: sample\n\nProject: fixture\nFragment: included\n");
 	assert.equal(blocks[1]?.text, "File: selected.txt\n\nselected");
 	assert.match(blocks[2]?.text ?? "", /^File: TREE\.txt\n\n/);
+	assert.equal(
+		await readFile(join(project, "PRELOAD.md"), "utf8"),
+		`${blocks.map((block) => block.text).join("\n\n")}\n`,
+	);
 	assert.doesNotMatch(blocks[0]?.text ?? "", /\n\n$/);
 });
 
