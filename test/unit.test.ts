@@ -312,10 +312,7 @@ test("collectPreload renders package context before files with one final newline
 	assert.equal(blocks[0]?.text, "Context: sample\n\nProject: fixture\nFragment: included\n");
 	assert.equal(blocks[1]?.text, "File: selected.txt\n\nselected");
 	assert.match(blocks[2]?.text ?? "", /^File: TREE\.txt\n\n/);
-	assert.equal(
-		await readFile(join(project, "PRELOAD.md"), "utf8"),
-		`${blocks.map((block) => block.text).join("\n\n")}\n`,
-	);
+	assert.equal(await readFile(join(project, "PRELOAD.md"), "utf8"), preloadSnapshot(result.blocks));
 	assert.doesNotMatch(blocks[0]?.text ?? "", /\n\n$/);
 });
 
