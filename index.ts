@@ -466,8 +466,8 @@ export async function collectPreload(
 	if (contextBytes > MAX_TOTAL_BYTES + MAX_TREE_BYTES) {
 		throw new Error(`Context with filesystem tree is over ${formatSize(MAX_TOTAL_BYTES + MAX_TREE_BYTES)}.`);
 	}
-	const preloadSnapshot = serializePreloadBlocks(blocks);
-	await writeFile(resolve(cwd, PRELOAD_FILE), preloadSnapshot, { encoding: "utf8", signal });
+	const validatedPreloadSnapshot = serializePreloadBlocks(blocks);
+	await writeFile(resolve(cwd, PRELOAD_FILE), validatedPreloadSnapshot, { encoding: "utf8", signal });
 	return { blocks, count: files.length, bytes: loadedBytes };
 }
 
