@@ -72,7 +72,7 @@ function blockBytes(block: PreloadBlock) {
 	return block.type === "text" ? Buffer.byteLength(block.text) : Buffer.byteLength(block.data);
 }
 
-function serializePreloadBlocks(blocks: PreloadBlock[]) {
+function serializePreloadBlocks(blocks: readonly PreloadBlock[]) {
 	return `${blocks
 		.map((block) =>
 			block.type === "text" ? block.text : `![Preloaded image](data:${block.mimeType};base64,${block.data})`,
