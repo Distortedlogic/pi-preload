@@ -459,9 +459,9 @@ export async function collectPreload(
 	}
 
 	signal.throwIfAborted();
-	const treeBlock = await collectFilesystemTree(cwd, ignorePatterns, signal);
+	const filesystemTreeBlock = await collectFilesystemTree(cwd, ignorePatterns, signal);
 	signal.throwIfAborted();
-	blocks.push(treeBlock);
+	blocks.push(filesystemTreeBlock);
 	const contextBytes = blocks.reduce((total, block) => total + blockBytes(block), 0);
 	if (contextBytes > MAX_TOTAL_BYTES + MAX_TREE_BYTES) {
 		throw new Error(`Context with filesystem tree is over ${formatSize(MAX_TOTAL_BYTES + MAX_TREE_BYTES)}.`);
