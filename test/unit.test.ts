@@ -150,7 +150,9 @@ test("collectPreload excludes ignored and lock files from content and tree", asy
 		/^File: PRELOAD\.md$/m,
 	);
 	assert.doesNotMatch(await readFile(join(project, "TREE.txt"), "utf8"), /PRELOAD\.md/);
-	assert.equal(await readFile(join(project, "PRELOAD.md"), "utf8"), preloadSnapshot(repeatedResult.blocks));
+	const repeatedSnapshot = await readFile(join(project, "PRELOAD.md"), "utf8");
+	assert.notEqual(repeatedSnapshot, "stale snapshot");
+	assert.equal(repeatedSnapshot, preloadSnapshot(repeatedResult.blocks));
 });
 
 test("collectPreload rejects an invalid glob list", async (t) => {
