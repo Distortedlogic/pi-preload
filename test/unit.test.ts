@@ -194,7 +194,7 @@ test("collectPreload snapshots image blocks in returned order", async (t) => {
 	assert.equal(result.blocks[2]?.type, "text");
 	const snapshot = await readFile(join(project, "PRELOAD.md"), "utf8");
 	assert.equal(snapshot, preloadSnapshot(result.blocks));
-	assert.ok(snapshot.includes(`data:image/png;base64,${image.toString("base64")}`));
+	assert.ok(snapshot.includes(`![Preloaded image](data:image/png;base64,${image.toString("base64")})`));
 });
 
 test("collectPreload inherits and deduplicates context names in order", async (t) => {
