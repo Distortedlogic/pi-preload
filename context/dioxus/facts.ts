@@ -31,6 +31,7 @@ interface CargoPackageMetadata {
 
 interface CargoMetadata {
 	packages: CargoPackageMetadata[];
+	workspace_default_members?: string[];
 	workspace_members: string[];
 	workspace_root: string;
 }
@@ -74,7 +75,7 @@ function collectDeclaredDioxusFeatures(features: Record<string, string[]>, depen
 			}
 		}
 	};
-	for (const feature of Object.keys(features)) visit(feature);
+	visit("default");
 	return collected;
 }
 
@@ -124,7 +125,12 @@ function selectDioxusPackages(
 	}
 
 	const nestedPackages = packages.filter((candidate) => isPathInsideOrEqual(resolvedCwd, candidate.manifestDirectory));
-	return nestedPackages.length > 0 ? nestedPackages : packages;
+	if (nestedPackages.length === 1) return nestedPackages;
+
+	const defaultMembers = new Set(metadata.workspace_default_members ?? []);
+	const defaultPackages = packages.filter((candidate) => defaultMembers.has(candidate.packageMetadata.id));
+	if (defaultPackages.length === 1) return defaultPackages;
+	return packages.length === 1 ? packages : [];
 }
 
 export function parseDioxusMetadata(
@@ -141,7 +147,10 @@ export function parseDioxusMetadata(
 			for (const feature of dependency.features ?? []) capabilities.add(feature);
 		}
 		const dependencyKeys = new Set(selectedPackage.dioxusDependencies.map(dependencyKey));
-		for (const feature of collectDeclaredDioxusFeatures(selectedPackage.packageMetadata.features ?? {}, dependencyKeys)) {
+		for (const feature of collectDeclaredDioxusFeatures(
+			selectedPackage.packageMetadata.features ?? {},
+			dependencyKeys,
+		)) {
 			capabilities.add(feature);
 		}
 		router ||= selectedPackage.dependencies.some((dependency) => dependency.name === "dioxus-router");

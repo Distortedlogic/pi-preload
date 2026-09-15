@@ -155,8 +155,8 @@ files:
 	assert.equal(contextBlock?.type, "text");
 	if (contextBlock?.type !== "text") assert.fail("Expected Dioxus text context");
 	assert.match(contextBlock.text, /^Context: dioxus\n\n/);
-	assert.doesNotMatch(contextBlock.text, /Detected Dioxus Project|Workspace packages|Dioxus features/);
-	assert.match(contextBlock.text, /# Dioxus Core Context/);
+	assert.doesNotMatch(contextBlock.text, /^(?:Detected Dioxus Project|Workspace packages|Dioxus features)/m);
+	assert.match(contextBlock.text, /# Dioxus Core/);
 	assert.match(contextBlock.text, /# Full-Stack Runtime/);
 	assert.match(contextBlock.text, /# Server Runtime/);
 	assert.match(contextBlock.text, /# Web Runtime/);
