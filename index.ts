@@ -415,7 +415,7 @@ export async function collectPreload(
 		throw new Error(`Selected files total ${formatSize(expectedBytes)}; the limit is ${formatSize(MAX_TOTAL_BYTES)}.`);
 	}
 
-	let loadedBytes = 0;
+	let selectedFileBytes = 0;
 	const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 	const fileBlocks = await pMap(
 		files,
@@ -425,8 +425,8 @@ export async function collectPreload(
 			if (bytes.length > MAX_FILE_BYTES) {
 				throw new Error(`${file.path} grew beyond ${formatSize(MAX_FILE_BYTES)}.`);
 			}
-			loadedBytes += bytes.length;
-			if (loadedBytes > MAX_TOTAL_BYTES) {
+			selectedFileBytes += bytes.length;
+			if (selectedFileBytes > MAX_TOTAL_BYTES) {
 				throw new Error(`Selected files grew beyond ${formatSize(MAX_TOTAL_BYTES)}.`);
 			}
 
@@ -468,7 +468,7 @@ export async function collectPreload(
 	}
 	const validatedPreloadSnapshot = serializePreloadBlocks(blocks);
 	await writeFile(resolve(cwd, PRELOAD_FILE), validatedPreloadSnapshot, { encoding: "utf8", signal });
-	return { blocks, count: files.length, bytes: loadedBytes };
+	return { blocks, count: files.length, bytes: selectedFileBytes };
 }
 
 export default function (pi: ExtensionAPI) {
