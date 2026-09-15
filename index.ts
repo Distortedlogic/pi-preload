@@ -373,7 +373,7 @@ export async function collectPreload(
 			: await globby(includePatterns, {
 					cwd,
 					gitignore: true,
-					ignore: [TREE_FILE, PRELOAD_FILE, ...LOCK_FILE_GLOBS, ...ignorePatterns],
+					ignore: [PRELOAD_FILE, TREE_FILE, ...LOCK_FILE_GLOBS, ...ignorePatterns],
 					onlyFiles: true,
 					followSymbolicLinks: false,
 					unique: true,
