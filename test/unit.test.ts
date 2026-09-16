@@ -38,16 +38,12 @@ const cachedConfigurations = new Map<string, Configuration>();
 async function writePreloadConfiguration(
 	project: string,
 	configuration: Configuration,
-	otherExtensions: Record<string, unknown> = {},
+	otherConfiguration: Record<string, unknown> = {},
 ) {
 	cachedConfigurations.set(project, configuration);
 	await writeFile(
 		join(project, "AGENTS.yml"),
-		JSON.stringify({
-			pi: {
-				extensions: { ...otherExtensions, "pi-context-preload": configuration },
-			},
-		}),
+		JSON.stringify({ ...otherConfiguration, "pi-context-preload": configuration }),
 	);
 }
 
@@ -87,7 +83,7 @@ async function writeContextSource(
 	await Promise.all(writes);
 }
 
-test("collectPreload uses cached namespaced configuration and ignores unrelated top-level keys", async (t) => {
+test("collectPreload uses cached configuration and ignores unrelated top-level keys", async (t) => {
 	const root = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
 	t.after(async () => rm(root, { recursive: true, force: true }));
 	const project = join(root, "project");
@@ -125,7 +121,7 @@ test("collectPreload returns undefined when AGENTS.yml is absent", async (t) => 
 	assert.equal(await collectPreload(project, AbortSignal.timeout(5_000)), undefined);
 });
 
-test("collectPreload returns undefined when AGENTS.yml has no preload key", async (t) => {
+test("collectPreload returns undefined when AGENTS.yml has no owned key", async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
 	t.after(async () => rm(project, { recursive: true, force: true }));
 	await writeFile(join(project, "AGENTS.yml"), JSON.stringify({ unrelated: true }));
@@ -160,10 +156,7 @@ test("collectPreload merges named presets with local globs", async (t) => {
 	await Promise.all([mkdir(join(project, "src"), { recursive: true }), mkdir(presetDirectory)]);
 	await Promise.all([
 		writePreloadConfiguration(project, { extends: ["common"], files: ["local.txt", excludedPattern] }),
-		writeFile(
-			join(presetDirectory, "common.yml"),
-			JSON.stringify({ pi: { extensions: { "pi-context-preload": { files: [sourcePattern] } } } }),
-		),
+		writeFile(join(presetDirectory, "common.yml"), JSON.stringify({ files: [sourcePattern] })),
 		writeFile(join(project, "src", "included.ts"), "included"),
 		writeFile(join(project, "src", "excluded.ts"), "excluded"),
 		writeFile(join(project, "local.txt"), "local"),
@@ -217,15 +210,12 @@ test("collectPreload validates presets with the shared configuration schema", as
 	const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
 	await Promise.all([
 		writePreloadConfiguration(project, { extends: ["invalid"] }),
-		writeFile(
-			join(presetDirectory, "invalid.yml"),
-			JSON.stringify({ pi: { extensions: { "pi-context-preload": { files: [42] } } } }),
-		),
+		writeFile(join(presetDirectory, "invalid.yml"), JSON.stringify({ files: [42] })),
 	]);
 
 	await assert.rejects(
 		collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory),
-		/invalid\.yml.*pi\.extensions\.pi-context-preload/,
+		/invalid\.yml.*pi-context-preload/,
 	);
 });
 
@@ -270,14 +260,8 @@ test("collectPreload inherits and deduplicates context names in order", async (t
 	);
 	await Promise.all([
 		writePreloadConfiguration(project, { extends: ["base", "extra"], contexts: ["third", "first"] }),
-		writeFile(
-			join(presetDirectory, "base.yml"),
-			JSON.stringify({ pi: { extensions: { "pi-context-preload": { contexts: ["first", "second"] } } } }),
-		),
-		writeFile(
-			join(presetDirectory, "extra.yml"),
-			JSON.stringify({ pi: { extensions: { "pi-context-preload": { contexts: ["second", "third"] } } } }),
-		),
+		writeFile(join(presetDirectory, "base.yml"), JSON.stringify({ contexts: ["first", "second"] })),
+		writeFile(join(presetDirectory, "extra.yml"), JSON.stringify({ contexts: ["second", "third"] })),
 	]);
 
 	const result = await collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory);

@@ -10,12 +10,8 @@ const extensionPath = fileURLToPath(new URL("../index.ts", import.meta.url));
 const codingAgentEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
 const cliPath = join(dirname(codingAgentEntry), "cli.js");
 
-function agentsConfiguration(configuration: unknown, otherExtensions: Record<string, unknown> = {}) {
-	return JSON.stringify({
-		pi: {
-			extensions: { ...otherExtensions, "pi-context-preload": configuration },
-		},
-	});
+function agentsConfiguration(configuration: unknown, otherConfiguration: Record<string, unknown> = {}) {
+	return JSON.stringify({ ...otherConfiguration, "pi-context-preload": configuration });
 }
 
 function fileBlock(path: string, content: string) {
@@ -71,7 +67,7 @@ test("Pi preloads valid AGENTS.yml configuration", { timeout: 20_000 }, async (t
 	await assert.rejects(readFile(join(project, "TREE.txt"), "utf8"), /ENOENT/);
 });
 
-test("Pi ignores a missing pi.extensions.pi-context-preload configuration", { timeout: 20_000 }, async (t) => {
+test("Pi ignores a missing pi-context-preload configuration", { timeout: 20_000 }, async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-e2e-"));
 	await writeFile(join(project, "AGENTS.yml"), JSON.stringify({ unrelated: true }));
 
@@ -124,11 +120,11 @@ test("Pi reports an invalid AGENTS.yml preload configuration", { timeout: 20_000
 		messages.some((message) => message.role === "custom" && message.customType === "context-preload"),
 		false,
 	);
-	assert.ok(extensionErrors.some((error) => /AGENTS\.yml.*pi\.extensions\.pi-context-preload/.test(error)));
+	assert.ok(extensionErrors.some((error) => /AGENTS\.yml.*pi-context-preload/.test(error)));
 });
 
 for (const [name, source] of [
-	["malformed YAML", "pi: [\n"],
+	["malformed YAML", "pi-context-preload: [\n"],
 	["an unknown owned-section field", agentsConfiguration({ files: [], unknown: true })],
 ] as const) {
 	test(`Pi reports ${name} with its source and section path`, { timeout: 20_000 }, async (t) => {
@@ -157,13 +153,13 @@ for (const [name, source] of [
 		});
 		await client.start();
 
-		assert.match(await extensionError, /AGENTS\.yml.*pi\.extensions\.pi-context-preload/);
+		assert.match(await extensionError, /AGENTS\.yml.*pi-context-preload/);
 	});
 }
 
 test("Pi does not read AGENTS.yml preload configuration for an untrusted project", { timeout: 20_000 }, async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-e2e-"));
-	await writeFile(join(project, "AGENTS.yml"), "pi: [\n");
+	await writeFile(join(project, "AGENTS.yml"), "pi-context-preload: [\n");
 	const extensionErrors: string[] = [];
 
 	const client = new RpcClient({
@@ -268,13 +264,11 @@ router = []
 		writeFile(join(dioxus, "src", "lib.rs"), "pub fn launch() {}\n"),
 		writeFile(
 			join(project, "AGENTS.yml"),
-			`pi:
-  extensions:
-    pi-context-preload:
-      extends:
-        - "dioxus-rust"
-      files:
-        - "app/src/lib.rs"
+			`pi-context-preload:
+  extends:
+    - "dioxus-rust"
+  files:
+    - "app/src/lib.rs"
 `,
 		),
 	]);

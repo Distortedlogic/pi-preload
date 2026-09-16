@@ -14,7 +14,7 @@ import { Value } from "typebox/value";
 import { type Configuration, configurationSchema } from "./agents.ts";
 
 const CUSTOM_TYPE = "context-preload";
-const OWNED_SECTION_PATH = "pi.extensions.pi-context-preload";
+const OWNED_SECTION_PATH = "pi-context-preload";
 const LOCK_FILE_GLOBS = [
 	"**/.terraform.lock.hcl",
 	"**/bun.lock",
@@ -100,16 +100,12 @@ function validateConfiguration(value: unknown, sourcePath: string): Configuratio
 }
 
 async function readConfiguration(sourcePath: string) {
-	return validateConfiguration(getOwnedConfiguration(await readYamlSource(sourcePath)), sourcePath);
+	return validateConfiguration(await readYamlSource(sourcePath), sourcePath);
 }
 
 function getOwnedConfiguration(document: unknown) {
 	if (!isObject(document)) return;
-	const piConfiguration = document.pi;
-	if (!isObject(piConfiguration)) return;
-	const extensions = piConfiguration.extensions;
-	if (!isObject(extensions)) return;
-	return extensions["pi-context-preload"];
+	return document["pi-context-preload"];
 }
 
 async function loadProjectConfiguration(cwd: string, signal: AbortSignal) {

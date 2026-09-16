@@ -1,4 +1,1 @@
-pi:
-  extensions:
-    pi-context-preload:
-      contexts: ["dioxus"]
+contexts: ["dioxus"]

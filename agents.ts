@@ -12,7 +12,3 @@ export const configurationSchema = Type.Object(
 );
 
 export type Configuration = Static<typeof configurationSchema>;
-
-export const agentsSection = {
-	"pi-context-preload": Type.Optional(configurationSchema),
-} as const;
