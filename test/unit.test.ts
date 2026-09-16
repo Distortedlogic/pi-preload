@@ -33,17 +33,6 @@ async function createDynamicFixture(t: TestContext) {
 	return { project, presetDirectory, contextDirectory };
 }
 
-async function writePreloadConfiguration(
-	project: string,
-	configuration: Configuration,
-	otherConfiguration: Record<string, unknown> = {},
-) {
-	await writeFile(
-		join(project, "AGENTS.yml"),
-		JSON.stringify({ ...otherConfiguration, "pi-context-preload": configuration }),
-	);
-}
-
 function fileBlock(path: string, content: string) {
 	const newline = content.endsWith("\n") ? "" : "\n";
 	const label = JSON.stringify(path);
@@ -86,7 +75,6 @@ test("collectPreload merges named presets with local globs", async (t) => {
 	await Promise.all([mkdir(join(project, "src"), { recursive: true }), mkdir(presetDirectory)]);
 	const configuration: Configuration = { extends: ["common"], files: ["local.txt", excludedPattern] };
 	await Promise.all([
-		writePreloadConfiguration(project, configuration),
 		writeFile(join(presetDirectory, "common.yml"), JSON.stringify({ files: [sourcePattern] })),
 		writeFile(join(project, "src", "included.ts"), "included"),
 		writeFile(join(project, "src", "excluded.ts"), "excluded"),
@@ -106,7 +94,6 @@ test("collectPreload excludes generated, ignored, and lock files from content", 
 	await Promise.all([mkdir(join(project, ".git")), mkdir(join(project, "ignored")), mkdir(join(project, "nested"))]);
 	const configuration: Configuration = { files: ["**/*", "PRELOAD.md", "TREE.txt", "!excluded.ts"] };
 	await Promise.all([
-		writePreloadConfiguration(project, configuration),
 		writeFile(join(project, ".gitignore"), "ignored/\n"),
 		writeFile(join(project, ".toolrc"), "hidden configuration"),
 		writeFile(join(project, "source.ts"), "source"),
@@ -125,14 +112,12 @@ test("collectPreload excludes generated, ignored, and lock files from content", 
 	assert.deepEqual(fileBlockPaths(result.blocks), ["source.ts"]);
 	assert.equal(await readFile(join(project, "PRELOAD.md"), "utf8"), `${fileBlock("source.ts", "source")}\n`);
 	assert.equal(await readFile(join(project, "TREE.txt"), "utf8"), "stale tree");
-
 });
 
 test("collectPreload validates presets with the shared configuration schema", async (t) => {
 	const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
 	const configuration: Configuration = { extends: ["invalid"] };
 	await Promise.all([
-		writePreloadConfiguration(project, configuration),
 		writeFile(join(presetDirectory, "invalid.yml"), JSON.stringify({ files: [42] })),
 	]);
 
@@ -147,7 +132,6 @@ test("collectPreload rejects an explicitly selected non-image binary", async (t)
 	t.after(async () => rm(project, { recursive: true, force: true }));
 	const configuration: Configuration = { files: ["invalid.txt"] };
 	await Promise.all([
-		writePreloadConfiguration(project, configuration),
 		writeFile(join(project, "invalid.txt"), Uint8Array.from([0xff])),
 	]);
 
@@ -166,7 +150,6 @@ test("collectPreload snapshots image blocks in returned order", async (t) => {
 	);
 	const configuration: Configuration = { files: ["image.png"] };
 	await Promise.all([
-		writePreloadConfiguration(project, configuration),
 		writeFile(join(project, "image.png"), image),
 	]);
 
@@ -188,7 +171,6 @@ test("collectPreload inherits and deduplicates context names in order", async (t
 	);
 	const configuration: Configuration = { extends: ["base", "extra"], contexts: ["third", "first"] };
 	await Promise.all([
-		writePreloadConfiguration(project, configuration),
 		writeFile(join(presetDirectory, "base.yml"), JSON.stringify({ contexts: ["first", "second"] })),
 		writeFile(join(presetDirectory, "extra.yml"), JSON.stringify({ contexts: ["second", "third"] })),
 	]);
@@ -213,7 +195,6 @@ test("collectPreload rejects unsafe context names", async (t) => {
 	const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
 	for (const name of ["", "/absolute", "nested/source", "nested\\source", ".", ".."]) {
 		const configuration: Configuration = { contexts: [name] };
-		await writePreloadConfiguration(project, configuration);
 		const preload = collectPreload(
 			project,
 			AbortSignal.timeout(5_000),
@@ -232,7 +213,6 @@ test("collectPreload rejects unsafe context names", async (t) => {
 test("collectPreload reports a missing context source", async (t) => {
 	const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
 	const configuration: Configuration = { contexts: ["missing-source"] };
-	await writePreloadConfiguration(project, configuration);
 
 	await assert.rejects(
 		collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, configuration),
@@ -248,7 +228,6 @@ test("collectPreload does not import an unselected context source", async (t) =>
 			facts: "export default (\n",
 			template: "unused",
 		}),
-		writePreloadConfiguration(project, configuration),
 		writeFile(join(project, "selected.txt"), "selected"),
 	]);
 
@@ -273,7 +252,6 @@ test("collectPreload skips rendering when context facts are undefined", async (t
 			facts: "export default async function () { return undefined; }\n",
 			template: "{{ facts.missing }}",
 		}),
-		writePreloadConfiguration(project, configuration),
 	]);
 
 	const result = await collectPreload(
@@ -298,7 +276,6 @@ test("collectPreload renders package context before files with one final newline
 			template: 'Project: {{ facts.name }}\r\n{% include "sample/fragment.md" %}',
 			fragments: { "fragment.md": "Fragment: {{ facts.detail }}\r\n" },
 		}),
-		writePreloadConfiguration(project, configuration),
 		writeFile(join(project, "selected.txt"), "selected"),
 	]);
 
@@ -349,7 +326,6 @@ test("collectPreload reports source-scoped context failures", async (t) => {
 	];
 	for (const [name, pattern] of cases) {
 		const configuration: Configuration = { contexts: [name] };
-		await writePreloadConfiguration(project, configuration);
 		await assert.rejects(
 			collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, configuration),
 			pattern,
@@ -361,10 +337,7 @@ test("collectPreload applies dynamic block and combined context limits", async (
 	await t.test("dynamic block limit", async (t) => {
 		const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
 		const configuration: Configuration = { contexts: ["too-large"] };
-		await Promise.all([
-			writeContextSource(contextDirectory, "too-large", { template: "x".repeat(256 * 1024) }),
-			writePreloadConfiguration(project, configuration),
-		]);
+		await writeContextSource(contextDirectory, "too-large", { template: "x".repeat(256 * 1024) });
 
 		await assert.rejects(
 			collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, configuration),
@@ -379,10 +352,7 @@ test("collectPreload applies dynamic block and combined context limits", async (
 			names.map((name) => writeContextSource(contextDirectory, name, { template: "x".repeat(255 * 1024) })),
 		);
 		const configuration: Configuration = { contexts: names, files: ["selected.txt"] };
-		await Promise.all([
-			writePreloadConfiguration(project, configuration),
-			writeFile(join(project, "selected.txt"), "x".repeat(8 * 1024)),
-		]);
+		await writeFile(join(project, "selected.txt"), "x".repeat(8 * 1024));
 
 		await assert.rejects(
 			collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, configuration),
