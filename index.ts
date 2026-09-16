@@ -1,6 +1,6 @@
 import type { Stats } from "node:fs";
 import { readFile, stat, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, formatSize } from "@earendil-works/pi-coding-agent";
@@ -326,8 +326,7 @@ export async function collectPreload(
 	signal.throwIfAborted();
 	if (files.length > MAX_FILES) throw new Error(`Preload has more than ${MAX_FILES} files.`);
 	files.sort(
-		(a, b) =>
-			dirname(a.file.path).localeCompare(dirname(b.file.path)) || a.file.path.localeCompare(b.file.path),
+		(a, b) => dirname(a.file.path).localeCompare(dirname(b.file.path)) || a.file.path.localeCompare(b.file.path),
 	);
 	const selectedFileBytes = files.reduce((total, file) => total + file.bytes, 0);
 	if (selectedFileBytes > MAX_TOTAL_BYTES) {

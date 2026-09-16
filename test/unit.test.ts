@@ -117,9 +117,7 @@ test("collectPreload excludes generated, ignored, and lock files from content", 
 test("collectPreload validates presets with the shared configuration schema", async (t) => {
 	const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
 	const configuration: Configuration = { extends: ["invalid"] };
-	await Promise.all([
-		writeFile(join(presetDirectory, "invalid.yml"), JSON.stringify({ files: [42] })),
-	]);
+	await writeFile(join(presetDirectory, "invalid.yml"), JSON.stringify({ files: [42] }));
 
 	await assert.rejects(
 		collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, configuration),
@@ -131,9 +129,7 @@ test("collectPreload rejects an explicitly selected non-image binary", async (t)
 	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
 	t.after(async () => rm(project, { recursive: true, force: true }));
 	const configuration: Configuration = { files: ["invalid.txt"] };
-	await Promise.all([
-		writeFile(join(project, "invalid.txt"), Uint8Array.from([0xff])),
-	]);
+	await writeFile(join(project, "invalid.txt"), Uint8Array.from([0xff]));
 
 	await assert.rejects(
 		collectPreload(project, AbortSignal.timeout(5_000), undefined, undefined, configuration),
@@ -149,9 +145,7 @@ test("collectPreload snapshots image blocks in returned order", async (t) => {
 		"base64",
 	);
 	const configuration: Configuration = { files: ["image.png"] };
-	await Promise.all([
-		writeFile(join(project, "image.png"), image),
-	]);
+	await writeFile(join(project, "image.png"), image);
 
 	const result = await collectPreload(project, AbortSignal.timeout(5_000), undefined, undefined, configuration);
 
@@ -645,4 +639,3 @@ test("Dioxus template follows every inclusion-matrix condition", async () => {
 	assert.equal(allCapabilities, [core, ...allFragments].join("\n"));
 	assert.doesNotMatch(allCapabilities, specialistContent);
 });
-

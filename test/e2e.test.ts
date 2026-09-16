@@ -130,4 +130,3 @@ test("Pi does not read AGENTS.yml preload configuration for an untrusted project
 	await assert.rejects(readFile(join(project, "TREE.txt"), "utf8"), /ENOENT/);
 	await assert.rejects(readFile(join(project, "PRELOAD.md"), "utf8"), /ENOENT/);
 });
-
