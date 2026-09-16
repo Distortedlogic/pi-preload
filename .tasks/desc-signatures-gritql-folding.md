@@ -1,6 +1,6 @@
 # `signatures` key: GritQL function-body folding
 
-Scope: add a `signatures` key to `CONTEXT_PRELOAD.yml` in `index.ts`. Files matched by `files` preload full content. Files matched by `signatures` preload the same source structure with callable bodies folded by GritQL. `files` wins when both keys select one path.
+Scope: add a `signatures` key to the `preload` object in root `AGENTS.yml` and support it in `index.ts`. Files matched by `files` preload full content. Files matched by `signatures` preload the same source structure with callable bodies folded by GritQL. `files` wins when both keys select one path.
 
 - [ ] In `index.ts`, extend `PRELOAD_CONFIG` with `signatures: Type.Optional(GLOB_LIST)` and change `PreloadConfiguration` to `{ files: string[]; signatures: string[]; contexts: string[] }`, keeping `additionalProperties: false` so unknown keys still fail validation.
 - [ ] Update `loadConfiguration()` to read `config.signatures ?? []`, apply the same absolute-pattern rule that presets use for `files` when `ancestors.length > 0`, and merge inherited and own signature patterns in the same order as `files`.
