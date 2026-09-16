@@ -274,80 +274,66 @@ export async function collectPreload(
 	const explicitFilePaths = new Set(
 		includePatterns.filter((pattern) => !isDynamicPattern(pattern)).map((pattern) => resolve(cwd, pattern)),
 	);
-	const binaryPaths = new Set<string>();
+	const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 	const selectedFiles = await pMap(
 		candidates,
 		async (file) => {
 			const path = resolve(cwd, file.path);
-			if (!(await isBinaryFile(path))) return file;
-			if (!explicitFilePaths.has(path)) return;
-			binaryPaths.add(path);
-			return file;
+			const bytes = await readFile(path, { signal });
+			const binary = await isBinaryFile(bytes);
+			if (binary && !explicitFilePaths.has(path)) return;
+			if (!file.dirent.isFile()) throw new Error(`Not a regular file: ${file.path}`);
+			const fileBytes = file.stats?.size;
+			if (fileBytes === undefined) throw new Error(`Could not read file metadata: ${file.path}`);
+			if (fileBytes > MAX_FILE_BYTES) {
+				throw new Error(`${file.path} is ${formatSize(fileBytes)}; the file limit is ${formatSize(MAX_FILE_BYTES)}.`);
+			}
+			if (bytes.length > MAX_FILE_BYTES) {
+				throw new Error(`${file.path} grew beyond ${formatSize(MAX_FILE_BYTES)}.`);
+			}
+
+			let blocks: PreloadBlock[];
+			if (binary) {
+				const fileType = await fileTypeFromBuffer(bytes);
+				if (!fileType?.mime.startsWith("image/")) {
+					throw new Error(`${file.path} is an explicitly selected binary file, but Pi context supports only images.`);
+				}
+				blocks = [
+					{ type: "text", text: `File: ${file.path}` },
+					{ type: "image", data: bytes.toString("base64"), mimeType: fileType.mime },
+				];
+			} else {
+				let text: string;
+				try {
+					text = decoder.decode(bytes);
+				} catch {
+					throw new Error(`${file.path} is not valid UTF-8 text.`);
+				}
+				const label = JSON.stringify(file.path);
+				const newline = text.endsWith("\n") ? "" : "\n";
+				blocks = [
+					{
+						type: "text",
+						text: `===== BEGIN FILE ${label} =====\n${text}${newline}===== END FILE ${label} =====`,
+					},
+				];
+			}
+			return { file, bytes: bytes.length, blocks };
 		},
 		{ concurrency: CONCURRENCY, signal },
 	);
 	const files = selectedFiles.filter((file) => file !== undefined);
 	signal.throwIfAborted();
 	if (files.length > MAX_FILES) throw new Error(`Preload has more than ${MAX_FILES} files.`);
-	files.sort((a, b) => dirname(a.path).localeCompare(dirname(b.path)) || a.path.localeCompare(b.path));
-
-	const expectedBytes = files.reduce((total, file) => {
-		if (!file.dirent.isFile()) throw new Error(`Not a regular file: ${file.path}`);
-		const fileBytes = file.stats?.size;
-		if (fileBytes === undefined) throw new Error(`Could not read file metadata: ${file.path}`);
-		if (fileBytes > MAX_FILE_BYTES) {
-			throw new Error(`${file.path} is ${formatSize(fileBytes)}; the file limit is ${formatSize(MAX_FILE_BYTES)}.`);
-		}
-		return total + fileBytes;
-	}, 0);
-	if (expectedBytes > MAX_TOTAL_BYTES) {
-		throw new Error(`Selected files total ${formatSize(expectedBytes)}; the limit is ${formatSize(MAX_TOTAL_BYTES)}.`);
-	}
-
-	let selectedFileBytes = 0;
-	const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
-	const fileBlocks = await pMap(
-		files,
-		async (file): Promise<PreloadBlock[]> => {
-			const path = resolve(cwd, file.path);
-			const bytes = await readFile(path, { signal });
-			if (bytes.length > MAX_FILE_BYTES) {
-				throw new Error(`${file.path} grew beyond ${formatSize(MAX_FILE_BYTES)}.`);
-			}
-			selectedFileBytes += bytes.length;
-			if (selectedFileBytes > MAX_TOTAL_BYTES) {
-				throw new Error(`Selected files grew beyond ${formatSize(MAX_TOTAL_BYTES)}.`);
-			}
-
-			if (binaryPaths.has(path)) {
-				const fileType = await fileTypeFromBuffer(bytes);
-				if (!fileType?.mime.startsWith("image/")) {
-					throw new Error(`${file.path} is an explicitly selected binary file, but Pi context supports only images.`);
-				}
-				return [
-					{ type: "text", text: `File: ${file.path}` },
-					{ type: "image", data: bytes.toString("base64"), mimeType: fileType.mime },
-				];
-			}
-
-			let text: string;
-			try {
-				text = decoder.decode(bytes);
-			} catch {
-				throw new Error(`${file.path} is not valid UTF-8 text.`);
-			}
-			const label = JSON.stringify(file.path);
-			const newline = text.endsWith("\n") ? "" : "\n";
-			return [
-				{
-					type: "text",
-					text: `===== BEGIN FILE ${label} =====\n${text}${newline}===== END FILE ${label} =====`,
-				},
-			];
-		},
-		{ concurrency: CONCURRENCY, signal },
+	files.sort(
+		(a, b) =>
+			dirname(a.file.path).localeCompare(dirname(b.file.path)) || a.file.path.localeCompare(b.file.path),
 	);
-	const blocks: PreloadBlock[] = [...contextBlocks, ...fileBlocks.flat()];
+	const selectedFileBytes = files.reduce((total, file) => total + file.bytes, 0);
+	if (selectedFileBytes > MAX_TOTAL_BYTES) {
+		throw new Error(`Selected files grew beyond ${formatSize(MAX_TOTAL_BYTES)}.`);
+	}
+	const blocks: PreloadBlock[] = [...contextBlocks, ...files.flatMap((file) => file.blocks)];
 
 	const preloadContextBytes = blocks.reduce((total, block) => total + blockBytes(block), 0);
 	if (preloadContextBytes > MAX_TOTAL_BYTES) {
