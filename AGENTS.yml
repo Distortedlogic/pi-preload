@@ -1,0 +1,6 @@
+preload:
+  extends:
+    - "pi-extension"
+  files:
+    - "index.ts"
+    - "package.json"
