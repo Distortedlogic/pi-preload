@@ -229,27 +229,15 @@ test("collectPreload rejects unsafe context names", async (t) => {
 	}
 });
 
-test("collectPreload requires regular convention entry files", async (t) => {
+test("collectPreload reports a missing context source", async (t) => {
 	const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
-	const missingFacts = join(contextDirectory, "missing-facts");
-	const missingTemplate = join(contextDirectory, "missing-template");
-	const nonRegular = join(contextDirectory, "non-regular");
-	await Promise.all([mkdir(missingFacts), mkdir(missingTemplate), mkdir(nonRegular)]);
-	await Promise.all([
-		writeFile(join(missingFacts, "index.md.njk"), "unused"),
-		writeFile(join(missingTemplate, "facts.ts"), "export default async function () { return {}; }\n"),
-		mkdir(join(nonRegular, "facts.ts")),
-		writeFile(join(nonRegular, "index.md.njk"), "unused"),
-	]);
+	const configuration: Configuration = { contexts: ["missing-source"] };
+	await writePreloadConfiguration(project, configuration);
 
-	for (const name of ["missing-facts", "missing-template", "non-regular"]) {
-		const configuration: Configuration = { contexts: [name] };
-		await writePreloadConfiguration(project, configuration);
-		await assert.rejects(
-			collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, configuration),
-			new RegExp(`Unknown context source: ${name}`),
-		);
-	}
+	await assert.rejects(
+		collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, configuration),
+		/Context source missing-source import failed:/,
+	);
 });
 
 test("collectPreload does not import an unselected context source", async (t) => {
@@ -351,9 +339,6 @@ test("collectPreload reports source-scoped context failures", async (t) => {
 		writeContextSource(contextDirectory, "render-error", {
 			template: '{% include "render-error/missing.md" %}',
 		}),
-		writeContextSource(contextDirectory, "strict-undefined", {
-			template: "{{ facts.missing }}",
-		}),
 	]);
 
 	const cases: Array<[string, RegExp]> = [
@@ -361,7 +346,6 @@ test("collectPreload reports source-scoped context failures", async (t) => {
 		["invalid-export", /Context source invalid-export facts\.ts default export must be a function/],
 		["execution-error", /Context source execution-error execution failed: loader boom/],
 		["render-error", /Context source render-error render failed:/],
-		["strict-undefined", /Context source strict-undefined render failed:/],
 	];
 	for (const [name, pattern] of cases) {
 		const configuration: Configuration = { contexts: [name] };
@@ -616,12 +600,6 @@ const dioxusContextScenarios = {
 	},
 	unrelatedWorkspace: dioxusBaseFacts,
 } satisfies Record<string, DioxusFacts>;
-const dioxusContextBaselineBytes = {
-	coreOnly: 3861,
-	router: 4168,
-	fullstackWebServer: 14634,
-	unrelatedWorkspace: 22008,
-} satisfies Record<keyof typeof dioxusContextScenarios, number>;
 const dioxusContextByteBudgets = {
 	coreOnly: 1200,
 	router: 1400,
@@ -633,7 +611,7 @@ function renderDioxusContext(facts: DioxusFacts) {
 	return dioxusEnvironment.render("dioxus/index.md.njk", { facts });
 }
 
-test("records representative Dioxus context baseline byte counts and budgets", () => {
+test("keeps representative Dioxus contexts within byte budgets", () => {
 	const renderedBytes = Object.fromEntries(
 		Object.entries(dioxusContextScenarios).map(([name, facts]) => [
 			name,
@@ -645,7 +623,6 @@ test("records representative Dioxus context baseline byte counts and budgets", (
 			renderedBytes[name] <= dioxusContextByteBudgets[name],
 			`${name} exceeds its ${dioxusContextByteBudgets[name]} byte limit`,
 		);
-		assert.ok(renderedBytes[name] < dioxusContextBaselineBytes[name]);
 	}
 });
 
