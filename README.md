@@ -4,29 +4,27 @@ Preload trusted project context from file globs and package-owned dynamic contex
 
 ## Configuration
 
-Edit `pi.extensions.pi-context-preload` in the root `<cwd>/AGENTS.yml`. Preserve unrelated top-level keys and other `pi.extensions` entries.
+Edit the top-level `pi-context-preload` section in the root `<cwd>/AGENTS.yml`. Preserve unrelated top-level keys and other extension-owned sections.
 
 ```yaml
-pi:
-  extensions:
-    pi-context-preload:
-      extends:
-        - "common"
-      files:
-        - "src/**/*.ts"
-      contexts:
-        - "dioxus"
-    pi-modes:
-      review: "Review the changes."
-    pi-prompts:
-      prompts:
-        summarize:
-          body: "Summarize the changes."
+pi-context-preload:
+  extends:
+    - "common"
+  files:
+    - "src/**/*.ts"
+  contexts:
+    - "dioxus"
+pi-modes:
+  review: "Review the changes."
+pi-prompts:
+  prompts:
+    summarize:
+      body: "Summarize the changes."
 ```
 
-- `pi.extensions.pi-context-preload.files` selects project files with globs.
-- `pi.extensions.pi-context-preload.contexts` selects package-owned dynamic context sources by name.
-- `pi.extensions.pi-context-preload.extends` loads package presets before the local configuration.
+- `pi-context-preload.files` selects project files with globs.
+- `pi-context-preload.contexts` selects package-owned dynamic context sources by name.
+- `pi-context-preload.extends` loads package presets before the local configuration.
 
 The collector keeps the configured context order. It removes repeated context names at their first occurrence. Dynamic context blocks come before selected file blocks. `TREE.txt` is always the last block.
 
@@ -35,26 +33,22 @@ The collector keeps the configured context order. It removes repeated context na
 The `dioxus-rust` preset enables the package-owned Dioxus context source. Use this minimal project configuration:
 
 ```yaml
-pi:
-  extensions:
-    pi-context-preload:
-      extends:
-        - "dioxus-rust"
-      files:
-        - "Cargo.toml"
-        - "Dioxus.toml"
-        - "src/**/*.rs"
-        - "tailwind.css"
+pi-context-preload:
+  extends:
+    - "dioxus-rust"
+  files:
+    - "Cargo.toml"
+    - "Dioxus.toml"
+    - "src/**/*.rs"
+    - "tailwind.css"
 ```
 
 You can also select the source directly:
 
 ```yaml
-pi:
-  extensions:
-    pi-context-preload:
-      contexts:
-        - "dioxus"
+pi-context-preload:
+  contexts:
+    - "dioxus"
 ```
 
 Cargo must be available when the `dioxus` source is selected. The source runs `cargo metadata --format-version 1 --no-deps`. It does not run a build or a build script.

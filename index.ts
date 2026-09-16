@@ -115,7 +115,7 @@ async function loadProjectConfiguration(cwd: string, signal: AbortSignal) {
 
 	return loadYamlConfiguration(sourcePath, (document) =>
 		typeof document === "object" && document !== null && !Array.isArray(document)
-			? (document as Record<string, unknown>)["pi-context-preload"]
+			? (document as Record<string, unknown>)[OWNED_SECTION_PATH]
 			: undefined,
 	);
 }
