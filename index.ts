@@ -373,10 +373,6 @@ export default function (pi: ExtensionAPI) {
 
 			pi.sendMessage({ customType: CUSTOM_TYPE, content: result.blocks, display: false }, { triggerTurn: false });
 			ctx.ui.notify(`Context preloaded: ${result.count} files — ${formatSize(result.bytes)}`, "info");
-		} catch (error) {
-			const detail = error instanceof Error ? error.message : String(error);
-			ctx.ui.notify(`Context preload failed: ${detail}`, "error");
-			throw error;
 		} finally {
 			ctx.ui.setStatus(CUSTOM_TYPE, undefined);
 		}
