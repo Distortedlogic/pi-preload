@@ -5,8 +5,9 @@ import { dirname, join } from "node:path";
 import test, { type TestContext } from "node:test";
 import type { TextContent } from "@earendil-works/pi-ai";
 import nunjucks from "nunjucks";
+import type { Configuration } from "../agents.ts";
 import { type DioxusFacts, parseDioxusMetadata } from "../context/dioxus/facts.ts";
-import { collectPreload } from "../index.ts";
+import { collectPreload as collectPreloadWithConfiguration } from "../index.ts";
 
 type PreloadResult = NonNullable<Awaited<ReturnType<typeof collectPreload>>>;
 
@@ -32,8 +33,38 @@ async function createDynamicFixture(t: TestContext) {
 	return { project, presetDirectory, contextDirectory };
 }
 
-async function writePreloadConfiguration(project: string, preload: unknown) {
-	await writeFile(join(project, "AGENTS.yml"), JSON.stringify({ preload }));
+const cachedConfigurations = new Map<string, Configuration>();
+
+async function writePreloadConfiguration(
+	project: string,
+	configuration: Configuration,
+	unrelated: Record<string, unknown> = {},
+) {
+	cachedConfigurations.set(project, configuration);
+	await writeFile(
+		join(project, "AGENTS.yml"),
+		JSON.stringify({
+			...unrelated,
+			pi: { extensions: { "pi-context-preload": configuration } },
+		}),
+	);
+}
+
+function collectPreload(cwd: string, signal: AbortSignal, presetDirectory?: string, contextDirectory?: string) {
+	return collectPreloadWithConfiguration(cwd, signal, presetDirectory, contextDirectory, cachedConfigurations.get(cwd));
+}
+
+function fileBlock(path: string, content: string) {
+	const newline = content.endsWith("\n") ? "" : "\n";
+	const label = JSON.stringify(path);
+	return `===== BEGIN FILE ${label} =====\n${content}${newline}===== END FILE ${label} =====`;
+}
+
+function fileBlockPaths(blocks: PreloadResult["blocks"]) {
+	return textBlocks(blocks).flatMap((block) => {
+		const match = /^===== BEGIN FILE (.+) =====/.exec(block.text);
+		return match ? [JSON.parse(match[1]) as string] : [];
+	});
 }
 
 async function writeContextSource(
@@ -55,7 +86,7 @@ async function writeContextSource(
 	await Promise.all(writes);
 }
 
-test("collectPreload reads AGENTS.yml preload and ignores unrelated top-level keys", async (t) => {
+test("collectPreload uses cached namespaced configuration and ignores unrelated top-level keys", async (t) => {
 	const root = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
 	t.after(async () => rm(root, { recursive: true, force: true }));
 	const project = join(root, "project");
@@ -65,13 +96,13 @@ test("collectPreload reads AGENTS.yml preload and ignores unrelated top-level ke
 		writeFile(join(project, "inside.txt"), "inside"),
 		writeFile(join(root, "parent.txt"), "parent"),
 		writeFile(absoluteFile, "absolute"),
-		writeFile(
-			join(project, "AGENTS.yml"),
-			JSON.stringify({
+		writePreloadConfiguration(
+			project,
+			{ files: ["inside.txt", "../parent.txt", absoluteFile] },
+			{
 				modes: { review: "Review changes" },
-				preload: { files: ["inside.txt", "../parent.txt", absoluteFile] },
 				prompts: { summarize: "Summarize changes" },
-			}),
+			},
 		),
 	]);
 
@@ -81,9 +112,9 @@ test("collectPreload reads AGENTS.yml preload and ignores unrelated top-level ke
 	assert.equal(result.count, 3);
 	assert.equal(result.bytes, Buffer.byteLength("insideparentabsolute"));
 	const text = textBlocks(result.blocks).map((block) => block.text);
-	assert.ok(text.includes("File: inside.txt\n\ninside"));
-	assert.ok(text.includes("File: ../parent.txt\n\nparent"));
-	assert.ok(text.includes(`File: ${absoluteFile}\n\nabsolute`));
+	assert.ok(text.includes(fileBlock("inside.txt", "inside")));
+	assert.ok(text.includes(fileBlock("../parent.txt", "parent")));
+	assert.ok(text.includes(fileBlock(absoluteFile, "absolute")));
 });
 
 test("collectPreload returns undefined when AGENTS.yml is absent", async (t) => {
@@ -101,12 +132,21 @@ test("collectPreload returns undefined when AGENTS.yml has no preload key", asyn
 	assert.equal(await collectPreload(project, AbortSignal.timeout(5_000)), undefined);
 });
 
-test("collectPreload rejects an invalid AGENTS.yml preload value", async (t) => {
+test("collectPreload does not reread AGENTS.yml after configuration is cached", async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
 	t.after(async () => rm(project, { recursive: true, force: true }));
-	await writeFile(join(project, "AGENTS.yml"), JSON.stringify({ preload: [] }));
+	await writePreloadConfiguration(project, { files: ["selected.txt"] });
+	await Promise.all([
+		writeFile(join(project, "selected.txt"), "selected"),
+		writeFile(join(project, "AGENTS.yml"), "invalid: [\n"),
+	]);
 
-	await assert.rejects(collectPreload(project, AbortSignal.timeout(5_000)), /AGENTS\.yml.*preload/);
+	const result = await collectPreload(project, AbortSignal.timeout(5_000));
+	assert.ok(result);
+	assert.deepEqual(
+		textBlocks(result.blocks).map((block) => block.text),
+		[fileBlock("selected.txt", "selected")],
+	);
 });
 
 test("collectPreload merges named presets with local globs", async (t) => {
@@ -129,8 +169,7 @@ test("collectPreload merges named presets with local globs", async (t) => {
 
 	assert.ok(result);
 	assert.equal(result.count, 2);
-	const paths = textBlocks(result.blocks).map((block) => block.text.slice(6, block.text.indexOf("\n\n")));
-	assert.deepEqual(paths, ["local.txt", join(project, "src", "included.ts")]);
+	assert.deepEqual(fileBlockPaths(result.blocks), ["local.txt", join(project, "src", "included.ts")]);
 });
 
 test("collectPreload excludes generated, ignored, and lock files from content", async (t) => {
@@ -154,9 +193,8 @@ test("collectPreload excludes generated, ignored, and lock files from content", 
 
 	assert.ok(result);
 	assert.equal(result.count, 1);
-	const paths = textBlocks(result.blocks).map((block) => block.text.slice(6, block.text.indexOf("\n\n")));
-	assert.deepEqual(paths, ["source.ts"]);
-	assert.equal(await readFile(join(project, "PRELOAD.md"), "utf8"), "File: source.ts\n\nsource\n");
+	assert.deepEqual(fileBlockPaths(result.blocks), ["source.ts"]);
+	assert.equal(await readFile(join(project, "PRELOAD.md"), "utf8"), `${fileBlock("source.ts", "source")}\n`);
 	assert.equal(await readFile(join(project, "TREE.txt"), "utf8"), "stale tree");
 
 	await writeFile(join(project, "PRELOAD.md"), "stale snapshot");
@@ -165,18 +203,23 @@ test("collectPreload excludes generated, ignored, and lock files from content", 
 	assert.equal(repeatedResult.count, 1);
 	assert.deepEqual(
 		textBlocks(repeatedResult.blocks).map((block) => block.text),
-		["File: source.ts\n\nsource"],
+		[fileBlock("source.ts", "source")],
 	);
 	assert.equal(await readFile(join(project, "TREE.txt"), "utf8"), "stale tree");
-	assert.equal(await readFile(join(project, "PRELOAD.md"), "utf8"), "File: source.ts\n\nsource\n");
+	assert.equal(await readFile(join(project, "PRELOAD.md"), "utf8"), `${fileBlock("source.ts", "source")}\n`);
 });
 
-test("collectPreload rejects an invalid glob list", async (t) => {
-	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
-	t.after(async () => rm(project, { recursive: true, force: true }));
-	await writePreloadConfiguration(project, { files: [42] });
+test("collectPreload validates presets with the shared configuration schema", async (t) => {
+	const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
+	await Promise.all([
+		writePreloadConfiguration(project, { extends: ["invalid"] }),
+		writeFile(join(presetDirectory, "invalid.yml"), JSON.stringify({ files: [42] })),
+	]);
 
-	await assert.rejects(collectPreload(project, AbortSignal.timeout(5_000)));
+	await assert.rejects(
+		collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory),
+		/invalid\.yml.*pi\.extensions\.pi-context-preload/,
+	);
 });
 
 test("collectPreload rejects an explicitly selected non-image binary", async (t) => {
@@ -284,7 +327,7 @@ test("collectPreload does not import an unselected context source", async (t) =>
 
 	assert.ok(result);
 	assert.equal(result.count, 1);
-	assert.equal(textBlocks(result.blocks)[0]?.text, "File: selected.txt\n\nselected");
+	assert.equal(textBlocks(result.blocks)[0]?.text, fileBlock("selected.txt", "selected"));
 });
 
 test("collectPreload skips rendering when context facts are undefined", async (t) => {
@@ -324,7 +367,7 @@ test("collectPreload renders package context before files with one final newline
 	const blocks = textBlocks(result.blocks);
 	assert.equal(blocks.length, 2);
 	assert.equal(blocks[0]?.text, "Context: sample\n\nProject: fixture\nFragment: included\n");
-	assert.equal(blocks[1]?.text, "File: selected.txt\n\nselected");
+	assert.equal(blocks[1]?.text, fileBlock("selected.txt", "selected"));
 	assert.equal(await readFile(join(project, "PRELOAD.md"), "utf8"), preloadSnapshot(result.blocks));
 	assert.doesNotMatch(blocks[0]?.text ?? "", /\n\n$/);
 });

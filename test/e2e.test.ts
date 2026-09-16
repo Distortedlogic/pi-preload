@@ -10,17 +10,32 @@ const extensionPath = fileURLToPath(new URL("../index.ts", import.meta.url));
 const codingAgentEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
 const cliPath = join(dirname(codingAgentEntry), "cli.js");
 
+function agentsConfiguration(configuration: unknown, unrelated: Record<string, unknown> = {}) {
+	return JSON.stringify({
+		...unrelated,
+		pi: { extensions: { "pi-context-preload": configuration } },
+	});
+}
+
+function fileBlock(path: string, content: string) {
+	const newline = content.endsWith("\n") ? "" : "\n";
+	const label = JSON.stringify(path);
+	return `===== BEGIN FILE ${label} =====\n${content}${newline}===== END FILE ${label} =====`;
+}
+
 test("Pi preloads valid AGENTS.yml configuration", { timeout: 20_000 }, async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-e2e-"));
 	await Promise.all([mkdir(join(project, "nested")), mkdir(join(project, "test"))]);
 	await Promise.all([
 		writeFile(
 			join(project, "AGENTS.yml"),
-			JSON.stringify({
-				modes: { review: "Review changes" },
-				preload: { files: ["nested/**/*"] },
-				prompts: { summarize: "Summarize changes" },
-			}),
+			agentsConfiguration(
+				{ files: ["nested/**/*"] },
+				{
+					modes: { review: "Review changes" },
+					prompts: { summarize: "Summarize changes" },
+				},
+			),
 		),
 		writeFile(join(project, "nested/context.txt"), "e2e preloaded text"),
 		writeFile(join(project, "nested/uv.lock"), "must not reach context"),
@@ -47,12 +62,15 @@ test("Pi preloads valid AGENTS.yml configuration", { timeout: 20_000 }, async (t
 	assert.equal(preload.display, false);
 	assert.ok(Array.isArray(preload.content));
 	assert.equal(preload.content.length, 1);
-	assert.deepEqual(preload.content[0], { type: "text", text: "File: nested/context.txt\n\ne2e preloaded text" });
-	assert.equal(await readFile(join(project, "PRELOAD.md"), "utf8"), "File: nested/context.txt\n\ne2e preloaded text\n");
+	assert.deepEqual(preload.content[0], { type: "text", text: fileBlock("nested/context.txt", "e2e preloaded text") });
+	assert.equal(
+		await readFile(join(project, "PRELOAD.md"), "utf8"),
+		`${fileBlock("nested/context.txt", "e2e preloaded text")}\n`,
+	);
 	await assert.rejects(readFile(join(project, "TREE.txt"), "utf8"), /ENOENT/);
 });
 
-test("Pi ignores an absent AGENTS.yml preload configuration", { timeout: 20_000 }, async (t) => {
+test("Pi ignores a missing pi.extensions.pi-context-preload configuration", { timeout: 20_000 }, async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-e2e-"));
 	await writeFile(join(project, "AGENTS.yml"), JSON.stringify({ modes: { review: "Review changes" } }));
 
@@ -79,7 +97,7 @@ test("Pi ignores an absent AGENTS.yml preload configuration", { timeout: 20_000 
 
 test("Pi reports an invalid AGENTS.yml preload configuration", { timeout: 20_000 }, async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-e2e-"));
-	await writeFile(join(project, "AGENTS.yml"), JSON.stringify({ preload: { files: [42] } }));
+	await writeFile(join(project, "AGENTS.yml"), agentsConfiguration({ files: [42] }));
 	const extensionErrors: string[] = [];
 
 	const client = new RpcClient({
@@ -105,8 +123,42 @@ test("Pi reports an invalid AGENTS.yml preload configuration", { timeout: 20_000
 		messages.some((message) => message.role === "custom" && message.customType === "context-preload"),
 		false,
 	);
-	assert.ok(extensionErrors.some((error) => /Invalid AGENTS\.yml preload key/.test(error)));
+	assert.ok(extensionErrors.some((error) => /AGENTS\.yml.*pi\.extensions\.pi-context-preload/.test(error)));
 });
+
+for (const [name, source] of [
+	["malformed YAML", "pi: [\n"],
+	["an unknown owned-section field", agentsConfiguration({ files: [], unknown: true })],
+] as const) {
+	test(`Pi reports ${name} with its source and section path`, { timeout: 20_000 }, async (t) => {
+		const project = await mkdtemp(join(tmpdir(), "pi-context-preload-e2e-"));
+		await writeFile(join(project, "AGENTS.yml"), source);
+		let resolveExtensionError: (error: string) => void;
+		const extensionError = new Promise<string>((resolve) => {
+			resolveExtensionError = resolve;
+		});
+
+		const client = new RpcClient({
+			cliPath,
+			cwd: project,
+			env: { PI_OFFLINE: "1" },
+			args: ["--approve", "--no-session", "--no-extensions", "--extension", extensionPath],
+		});
+		client.onEvent((event) => {
+			const extensionEvent = event as unknown as { type: string; error?: string };
+			if (extensionEvent.type === "extension_error" && extensionEvent.error) {
+				resolveExtensionError(extensionEvent.error);
+			}
+		});
+		t.after(async () => {
+			await client.stop();
+			await rm(project, { recursive: true, force: true });
+		});
+		await client.start();
+
+		assert.match(await extensionError, /AGENTS\.yml.*pi\.extensions\.pi-context-preload/);
+	});
+}
 
 test("Pi does not read AGENTS.yml preload configuration for an untrusted project", { timeout: 20_000 }, async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-e2e-"));
@@ -215,11 +267,13 @@ router = []
 		writeFile(join(dioxus, "src", "lib.rs"), "pub fn launch() {}\n"),
 		writeFile(
 			join(project, "AGENTS.yml"),
-			`preload:
-  extends:
-    - "dioxus-rust"
-  files:
-    - "app/src/lib.rs"
+			`pi:
+  extensions:
+    pi-context-preload:
+      extends:
+        - "dioxus-rust"
+      files:
+        - "app/src/lib.rs"
 `,
 		),
 	]);
@@ -257,6 +311,6 @@ router = []
 		contextBlock.text,
 		/# Dioxus Routing|Initial Setup|Authentication|Real-Time and Streaming|PWA Integration|# Desktop|# Mobile|use_store|SetCookie|ServerEvents|CustomPaintSource|manganis::ffi/,
 	);
-	assert.deepEqual(preload.content[1], { type: "text", text: "File: app/src/lib.rs\n\npub fn app() {}\n" });
+	assert.deepEqual(preload.content[1], { type: "text", text: fileBlock("app/src/lib.rs", "pub fn app() {}\n") });
 	await assert.rejects(readFile(join(project, "TREE.txt"), "utf8"), /ENOENT/);
 });
