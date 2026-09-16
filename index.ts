@@ -290,9 +290,8 @@ export async function collectPreload(
 	signal: AbortSignal,
 	presetDirectory = DEFAULT_PRESET_DIRECTORY,
 	contextDirectory = DEFAULT_CONTEXT_DIRECTORY,
-	configuration?: Configuration,
+	configuration: Configuration,
 ) {
-	if (!configuration) return;
 	const resolvedConfiguration = await loadConfiguration(
 		resolve(cwd, "AGENTS.yml"),
 		presetDirectory,
@@ -411,10 +410,7 @@ export async function collectPreload(
 }
 
 export default function (pi: ExtensionAPI) {
-	let cachedConfiguration: Configuration | undefined;
-
 	pi.on("session_start", async (_event, ctx) => {
-		cachedConfiguration = undefined;
 		const hasPreload = ctx.sessionManager
 			.buildContextEntries()
 			.some(
@@ -427,14 +423,14 @@ export default function (pi: ExtensionAPI) {
 
 		try {
 			const signal = AbortSignal.timeout(DEADLINE_MS);
-			cachedConfiguration = await loadProjectConfiguration(ctx.cwd, signal);
-			if (!cachedConfiguration) return;
+			const configuration = await loadProjectConfiguration(ctx.cwd, signal);
+			if (!configuration) return;
 			const result = await collectPreload(
 				ctx.cwd,
 				signal,
 				DEFAULT_PRESET_DIRECTORY,
 				DEFAULT_CONTEXT_DIRECTORY,
-				cachedConfiguration,
+				configuration,
 			);
 			if (!result) return;
 
