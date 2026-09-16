@@ -166,11 +166,6 @@ async function loadConfiguration(
 	};
 }
 
-function contextSourceError(name: string, operation: string, error: unknown) {
-	const detail = error instanceof Error ? error.message : String(error);
-	return new Error(`Context source ${name} ${operation} failed: ${detail}`, { cause: error });
-}
-
 async function loadContextSource(
 	cwd: string,
 	name: string,
@@ -185,7 +180,8 @@ async function loadContextSource(
 		contextModule = (await import(pathToFileURL(factsPath).href)) as { default?: unknown };
 	} catch (error) {
 		signal.throwIfAborted();
-		throw contextSourceError(name, "import", error);
+		const detail = error instanceof Error ? error.message : String(error);
+		throw new Error(`Context source ${name} import failed: ${detail}`, { cause: error });
 	}
 	const loader = contextModule.default;
 	if (typeof loader !== "function") {
@@ -198,29 +194,11 @@ async function loadContextSource(
 		facts = await (loader as ContextFactsLoader)({ cwd, signal });
 	} catch (error) {
 		signal.throwIfAborted();
-		throw contextSourceError(name, "execution", error);
+		const detail = error instanceof Error ? error.message : String(error);
+		throw new Error(`Context source ${name} execution failed: ${detail}`, { cause: error });
 	}
 	signal.throwIfAborted();
 	return facts === undefined ? undefined : { name, facts, templatePath };
-}
-
-function renderContextSource(
-	source: ContextSource,
-	environment: nunjucks.Environment,
-	signal: AbortSignal,
-): TextContent {
-	let rendered: string;
-	signal.throwIfAborted();
-	try {
-		rendered = environment.render(source.templatePath, { facts: source.facts });
-	} catch (error) {
-		signal.throwIfAborted();
-		throw contextSourceError(source.name, "render", error);
-	}
-	signal.throwIfAborted();
-	const markdown = rendered.replace(/\r\n?/g, "\n").trimEnd();
-	if (markdown.trim().length === 0) throw new Error(`Context source ${source.name} rendered empty content.`);
-	return { type: "text", text: `Context: ${source.name}\n\n${markdown}\n` };
 }
 
 async function loadContextSources(cwd: string, names: string[], contextDirectory: string, signal: AbortSignal) {
@@ -235,7 +213,19 @@ async function loadContextSources(cwd: string, names: string[], contextDirectory
 	for (const name of names) {
 		const source = await loadContextSource(cwd, name, contextRoot, signal);
 		if (!source) continue;
-		const block = renderContextSource(source, environment, signal);
+		let rendered: string;
+		signal.throwIfAborted();
+		try {
+			rendered = environment.render(source.templatePath, { facts: source.facts });
+		} catch (error) {
+			signal.throwIfAborted();
+			const detail = error instanceof Error ? error.message : String(error);
+			throw new Error(`Context source ${source.name} render failed: ${detail}`, { cause: error });
+		}
+		signal.throwIfAborted();
+		const markdown = rendered.replace(/\r\n?/g, "\n").trimEnd();
+		if (markdown.trim().length === 0) throw new Error(`Context source ${source.name} rendered empty content.`);
+		const block: TextContent = { type: "text", text: `Context: ${source.name}\n\n${markdown}\n` };
 		const bytes = blockBytes(block);
 		if (bytes > MAX_FILE_BYTES) {
 			throw new Error(
