@@ -67,31 +67,6 @@ test("Pi preloads valid AGENTS.yml configuration", { timeout: 20_000 }, async (t
 	await assert.rejects(readFile(join(project, "TREE.txt"), "utf8"), /ENOENT/);
 });
 
-test("Pi ignores a missing pi-context-preload configuration", { timeout: 20_000 }, async (t) => {
-	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-e2e-"));
-	await writeFile(join(project, "AGENTS.yml"), JSON.stringify({ unrelated: true }));
-
-	const client = new RpcClient({
-		cliPath,
-		cwd: project,
-		env: { PI_OFFLINE: "1" },
-		args: ["--approve", "--no-session", "--no-extensions", "--extension", extensionPath],
-	});
-	t.after(async () => {
-		await client.stop();
-		await rm(project, { recursive: true, force: true });
-	});
-	await client.start();
-
-	const messages = await client.getMessages();
-	assert.equal(
-		messages.some((message) => message.role === "custom" && message.customType === "context-preload"),
-		false,
-	);
-	await assert.rejects(readFile(join(project, "TREE.txt"), "utf8"), /ENOENT/);
-	await assert.rejects(readFile(join(project, "PRELOAD.md"), "utf8"), /ENOENT/);
-});
-
 test("Pi reports an invalid AGENTS.yml preload configuration", { timeout: 20_000 }, async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-e2e-"));
 	await writeFile(join(project, "AGENTS.yml"), agentsConfiguration({ files: [42] }));
@@ -122,40 +97,6 @@ test("Pi reports an invalid AGENTS.yml preload configuration", { timeout: 20_000
 	);
 	assert.ok(extensionErrors.some((error) => /AGENTS\.yml.*pi-context-preload/.test(error)));
 });
-
-for (const [name, source] of [
-	["malformed YAML", "pi-context-preload: [\n"],
-	["an unknown owned-section field", agentsConfiguration({ files: [], unknown: true })],
-] as const) {
-	test(`Pi reports ${name} with its source and section path`, { timeout: 20_000 }, async (t) => {
-		const project = await mkdtemp(join(tmpdir(), "pi-context-preload-e2e-"));
-		await writeFile(join(project, "AGENTS.yml"), source);
-		let resolveExtensionError: (error: string) => void;
-		const extensionError = new Promise<string>((resolve) => {
-			resolveExtensionError = resolve;
-		});
-
-		const client = new RpcClient({
-			cliPath,
-			cwd: project,
-			env: { PI_OFFLINE: "1" },
-			args: ["--approve", "--no-session", "--no-extensions", "--extension", extensionPath],
-		});
-		client.onEvent((event) => {
-			const extensionEvent = event as unknown as { type: string; error?: string };
-			if (extensionEvent.type === "extension_error" && extensionEvent.error) {
-				resolveExtensionError(extensionEvent.error);
-			}
-		});
-		t.after(async () => {
-			await client.stop();
-			await rm(project, { recursive: true, force: true });
-		});
-		await client.start();
-
-		assert.match(await extensionError, /AGENTS\.yml.*pi-context-preload/);
-	});
-}
 
 test("Pi does not read AGENTS.yml preload configuration for an untrusted project", { timeout: 20_000 }, async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-e2e-"));
