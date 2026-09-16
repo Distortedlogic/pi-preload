@@ -133,15 +133,14 @@ function validateContextName(name: string) {
 }
 
 async function loadConfiguration(
+	config: Configuration,
 	configPath: string,
 	presetDirectory: string,
 	signal: AbortSignal,
 	ancestors: string[] = [],
-	configValue?: Configuration,
 ): Promise<PreloadConfiguration> {
 	const path = resolve(configPath);
 	if (ancestors.includes(path)) throw new Error(`Circular context preload preset: ${path}`);
-	const config = configValue === undefined ? await loadYamlConfiguration(path) : configValue;
 	const ownFiles = config.files ?? [];
 	if (ancestors.length > 0) {
 		const relativePattern = ownFiles.find(
@@ -153,8 +152,13 @@ async function loadConfiguration(
 	for (const context of ownContexts) validateContextName(context);
 	const inherited = await pMap(
 		config.extends ?? [],
-		async (preset) =>
-			loadConfiguration(join(presetDirectory, `${preset}.yml`), presetDirectory, signal, [...ancestors, path]),
+		async (preset) => {
+			const presetPath = resolve(presetDirectory, `${preset}.yml`);
+			const presetAncestors = [...ancestors, path];
+			if (presetAncestors.includes(presetPath)) throw new Error(`Circular context preload preset: ${presetPath}`);
+			const presetConfiguration = await loadYamlConfiguration(presetPath);
+			return loadConfiguration(presetConfiguration, presetPath, presetDirectory, signal, presetAncestors);
+		},
 		{ concurrency: CONCURRENCY, signal },
 	);
 	return {
@@ -277,11 +281,10 @@ export async function collectPreload(
 	configuration: Configuration,
 ) {
 	const resolvedConfiguration = await loadConfiguration(
+		configuration,
 		resolve(cwd, "AGENTS.yml"),
 		presetDirectory,
 		signal,
-		[],
-		configuration,
 	);
 	const { files: patterns, contexts } = resolvedConfiguration;
 	const contextBlocks = await loadContextSources(cwd, contexts, contextDirectory, signal);
