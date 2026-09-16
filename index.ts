@@ -1,6 +1,6 @@
 import type { Stats } from "node:fs";
 import { readFile, stat, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, formatSize } from "@earendil-works/pi-coding-agent";
@@ -66,7 +66,7 @@ function serializePreloadBlocks(blocks: readonly PreloadBlock[]) {
 
 type PreloadConfiguration = { files: string[]; contexts: string[] };
 type ContextFactsLoader = (input: { cwd: string; signal: AbortSignal }) => Promise<Record<string, unknown> | undefined>;
-type ContextSource = { name: string; facts: Record<string, unknown> };
+type ContextSource = { name: string; facts: Record<string, unknown>; templatePath: string };
 
 const CONTEXT_NAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
 
@@ -149,7 +149,6 @@ async function loadConfiguration(
 		if (relativePattern) throw new Error(`Context preload preset pattern must be absolute: ${relativePattern}`);
 	}
 	const ownContexts = config.contexts ?? [];
-	for (const context of ownContexts) validateContextName(context);
 	const inherited = await pMap(
 		config.extends ?? [],
 		async (preset) => {
@@ -167,23 +166,6 @@ async function loadConfiguration(
 	};
 }
 
-function isPathInside(directory: string, path: string) {
-	const relativePath = relative(directory, path);
-	return (
-		relativePath !== "" && relativePath !== ".." && !relativePath.startsWith(`..${sep}`) && !isAbsolute(relativePath)
-	);
-}
-
-function resolveContextSourcePaths(contextRoot: string, name: string) {
-	validateContextName(name);
-	const factsPath = resolve(contextRoot, name, CONTEXT_FACTS_FILE);
-	const templatePath = resolve(contextRoot, name, CONTEXT_TEMPLATE_FILE);
-	if (!isPathInside(contextRoot, factsPath) || !isPathInside(contextRoot, templatePath)) {
-		throw new Error(`Invalid context source name: ${JSON.stringify(name)}`);
-	}
-	return { factsPath, templatePath };
-}
-
 function contextSourceError(name: string, operation: string, error: unknown) {
 	const detail = error instanceof Error ? error.message : String(error);
 	return new Error(`Context source ${name} ${operation} failed: ${detail}`, { cause: error });
@@ -195,18 +177,9 @@ async function loadContextSource(
 	contextRoot: string,
 	signal: AbortSignal,
 ): Promise<ContextSource | undefined> {
-	const { factsPath, templatePath } = resolveContextSourcePaths(contextRoot, name);
+	const factsPath = resolve(contextRoot, name, CONTEXT_FACTS_FILE);
+	const templatePath = resolve(contextRoot, name, CONTEXT_TEMPLATE_FILE);
 	signal.throwIfAborted();
-	let entryStats: Stats[];
-	try {
-		entryStats = await Promise.all([stat(factsPath), stat(templatePath)]);
-	} catch {
-		signal.throwIfAborted();
-		throw new Error(`Unknown context source: ${name}`);
-	}
-	if (entryStats.some((entry) => !entry.isFile())) throw new Error(`Unknown context source: ${name}`);
-	signal.throwIfAborted();
-
 	let contextModule: { default?: unknown };
 	try {
 		contextModule = (await import(pathToFileURL(factsPath).href)) as { default?: unknown };
@@ -228,7 +201,7 @@ async function loadContextSource(
 		throw contextSourceError(name, "execution", error);
 	}
 	signal.throwIfAborted();
-	return facts === undefined ? undefined : { name, facts };
+	return facts === undefined ? undefined : { name, facts, templatePath };
 }
 
 function renderContextSource(
@@ -239,7 +212,7 @@ function renderContextSource(
 	let rendered: string;
 	signal.throwIfAborted();
 	try {
-		rendered = environment.render(`${source.name}/${CONTEXT_TEMPLATE_FILE}`, { facts: source.facts });
+		rendered = environment.render(source.templatePath, { facts: source.facts });
 	} catch (error) {
 		signal.throwIfAborted();
 		throw contextSourceError(source.name, "render", error);
@@ -252,6 +225,7 @@ function renderContextSource(
 
 async function loadContextSources(cwd: string, names: string[], contextDirectory: string, signal: AbortSignal) {
 	if (names.length === 0) return [];
+	for (const name of names) validateContextName(name);
 	const contextRoot = resolve(contextDirectory);
 	const environment = new nunjucks.Environment(new nunjucks.FileSystemLoader(contextRoot, { noCache: true }), {
 		autoescape: false,
