@@ -10,19 +10,11 @@ import { isBinaryFile } from "isbinaryfile";
 import nunjucks from "nunjucks";
 import pMap from "p-map";
 import { readYamlFile } from "read-yaml-file";
-import { Type } from "typebox";
 import { Value } from "typebox/value";
+import { type Configuration, configurationSchema } from "./agents.ts";
 
 const CUSTOM_TYPE = "context-preload";
-const GLOB_LIST = Type.Array(Type.String({ minLength: 1 }));
-const PRELOAD_CONFIG = Type.Object(
-	{
-		extends: Type.Optional(GLOB_LIST),
-		files: Type.Optional(GLOB_LIST),
-		contexts: Type.Optional(GLOB_LIST),
-	},
-	{ additionalProperties: false },
-);
+const OWNED_SECTION_PATH = "pi.extensions.pi-context-preload";
 const LOCK_FILE_GLOBS = [
 	"**/.terraform.lock.hcl",
 	"**/bun.lock",
@@ -78,6 +70,76 @@ type ContextSource = { name: string; facts: Record<string, unknown> };
 
 const CONTEXT_NAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
 
+function isObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function configurationSourceError(sourcePath: string, kind: "parse" | "validation", error: unknown) {
+	const detail = error instanceof Error ? error.message : String(error);
+	const message =
+		kind === "parse"
+			? `Could not parse ${sourcePath} at ${OWNED_SECTION_PATH}: ${detail}`
+			: `Invalid configuration in ${sourcePath} at ${OWNED_SECTION_PATH}: ${detail}`;
+	return new Error(message, { cause: error });
+}
+
+async function readYamlSource(sourcePath: string) {
+	try {
+		return await readYamlFile(sourcePath);
+	} catch (error) {
+		throw configurationSourceError(sourcePath, "parse", error);
+	}
+}
+
+function validateConfiguration(value: unknown, sourcePath: string): Configuration {
+	try {
+		return Value.Parse(configurationSchema, value);
+	} catch (error) {
+		throw configurationSourceError(sourcePath, "validation", error);
+	}
+}
+
+async function readConfiguration(sourcePath: string) {
+	return validateConfiguration(await readYamlSource(sourcePath), sourcePath);
+}
+
+function getOwnedConfiguration(document: unknown) {
+	if (!isObject(document)) return;
+	const piConfiguration = document.pi;
+	if (!isObject(piConfiguration)) return;
+	const extensions = piConfiguration.extensions;
+	if (!isObject(extensions)) return;
+	return extensions["pi-context-preload"];
+}
+
+async function loadProjectConfiguration(cwd: string, signal: AbortSignal) {
+	const [source] = await globby("AGENTS.yml", {
+		cwd,
+		onlyFiles: false,
+		followSymbolicLinks: false,
+		objectMode: true,
+		stats: true,
+	});
+	signal.throwIfAborted();
+	if (!source) return;
+
+	const sourcePath = resolve(cwd, source.path);
+	if (!source.dirent.isFile()) {
+		throw new Error(`Invalid configuration source ${sourcePath} at ${OWNED_SECTION_PATH}: expected a regular file.`);
+	}
+	const sourceBytes = source.stats?.size;
+	if (sourceBytes === undefined) {
+		throw new Error(`Could not read configuration metadata for ${sourcePath} at ${OWNED_SECTION_PATH}.`);
+	}
+	if (sourceBytes > MAX_FILE_BYTES) {
+		throw new Error(`${sourcePath} at ${OWNED_SECTION_PATH} exceeds ${formatSize(MAX_FILE_BYTES)}.`);
+	}
+
+	const value = getOwnedConfiguration(await readYamlSource(sourcePath));
+	if (value === undefined) return;
+	return validateConfiguration(value, sourcePath);
+}
+
 function validateContextName(name: string) {
 	const segments = name.split(/[\\/]/);
 	if (
@@ -95,11 +157,11 @@ async function loadConfiguration(
 	presetDirectory: string,
 	signal: AbortSignal,
 	ancestors: string[] = [],
-	configValue?: unknown,
+	configValue?: Configuration,
 ): Promise<PreloadConfiguration> {
 	const path = resolve(configPath);
 	if (ancestors.includes(path)) throw new Error(`Circular context preload preset: ${path}`);
-	const config = Value.Parse(PRELOAD_CONFIG, configValue === undefined ? await readYamlFile(path) : configValue);
+	const config = configValue === undefined ? await readConfiguration(path) : configValue;
 	const ownFiles = config.files ?? [];
 	if (ancestors.length > 0) {
 		const relativePattern = ownFiles.find(
@@ -232,42 +294,17 @@ export async function collectPreload(
 	signal: AbortSignal,
 	presetDirectory = DEFAULT_PRESET_DIRECTORY,
 	contextDirectory = DEFAULT_CONTEXT_DIRECTORY,
+	configuration?: Configuration,
 ) {
-	const [config] = await globby("AGENTS.yml", {
-		cwd,
-		onlyFiles: false,
-		followSymbolicLinks: false,
-		objectMode: true,
-		stats: true,
-	});
-	signal.throwIfAborted();
-	if (!config) return;
-	if (!config.dirent.isFile()) throw new Error("AGENTS.yml must be a regular file.");
-	const configBytes = config.stats?.size;
-	if (configBytes === undefined) throw new Error("Could not read AGENTS.yml metadata.");
-	if (configBytes > MAX_FILE_BYTES) {
-		throw new Error(`AGENTS.yml exceeds ${formatSize(MAX_FILE_BYTES)}.`);
-	}
-
-	let agentsDocument: unknown;
-	try {
-		agentsDocument = await readYamlFile(resolve(cwd, config.path));
-	} catch (error) {
-		const detail = error instanceof Error ? error.message : String(error);
-		throw new Error(`Could not read AGENTS.yml preload key: ${detail}`, { cause: error });
-	}
-	if (typeof agentsDocument !== "object" || agentsDocument === null || Array.isArray(agentsDocument)) return;
-	const preload = (agentsDocument as Record<string, unknown>).preload;
-	if (preload === undefined) return;
-
-	let configuration: PreloadConfiguration;
-	try {
-		configuration = await loadConfiguration(resolve(cwd, config.path), presetDirectory, signal, [], preload);
-	} catch (error) {
-		const detail = error instanceof Error ? error.message : String(error);
-		throw new Error(`Invalid AGENTS.yml preload key: ${detail}`, { cause: error });
-	}
-	const { files: patterns, contexts } = configuration;
+	if (!configuration) return;
+	const resolvedConfiguration = await loadConfiguration(
+		resolve(cwd, "AGENTS.yml"),
+		presetDirectory,
+		signal,
+		[],
+		configuration,
+	);
+	const { files: patterns, contexts } = resolvedConfiguration;
 	const contextBlocks = await loadContextSources(cwd, contexts, contextDirectory, signal);
 	signal.throwIfAborted();
 	const includePatterns = patterns.filter((pattern) => !pattern.startsWith("!"));
@@ -378,7 +415,10 @@ export async function collectPreload(
 }
 
 export default function (pi: ExtensionAPI) {
+	let cachedConfiguration: Configuration | undefined;
+
 	pi.on("session_start", async (_event, ctx) => {
+		cachedConfiguration = undefined;
 		const hasPreload = ctx.sessionManager
 			.buildContextEntries()
 			.some(
@@ -391,7 +431,15 @@ export default function (pi: ExtensionAPI) {
 
 		try {
 			const signal = AbortSignal.timeout(DEADLINE_MS);
-			const result = await collectPreload(ctx.cwd, signal);
+			cachedConfiguration = await loadProjectConfiguration(ctx.cwd, signal);
+			if (!cachedConfiguration) return;
+			const result = await collectPreload(
+				ctx.cwd,
+				signal,
+				DEFAULT_PRESET_DIRECTORY,
+				DEFAULT_CONTEXT_DIRECTORY,
+				cachedConfiguration,
+			);
 			if (!result) return;
 
 			pi.sendMessage({ customType: CUSTOM_TYPE, content: result.blocks, display: false }, { triggerTurn: false });
