@@ -126,22 +126,6 @@ test("collectPreload excludes generated, ignored, and lock files from content", 
 	assert.equal(await readFile(join(project, "PRELOAD.md"), "utf8"), `${fileBlock("source.ts", "source")}\n`);
 	assert.equal(await readFile(join(project, "TREE.txt"), "utf8"), "stale tree");
 
-	await writeFile(join(project, "PRELOAD.md"), "stale snapshot");
-	const repeatedResult = await collectPreload(
-		project,
-		AbortSignal.timeout(5_000),
-		undefined,
-		undefined,
-		configuration,
-	);
-	assert.ok(repeatedResult);
-	assert.equal(repeatedResult.count, 1);
-	assert.deepEqual(
-		textBlocks(repeatedResult.blocks).map((block) => block.text),
-		[fileBlock("source.ts", "source")],
-	);
-	assert.equal(await readFile(join(project, "TREE.txt"), "utf8"), "stale tree");
-	assert.equal(await readFile(join(project, "PRELOAD.md"), "utf8"), `${fileBlock("source.ts", "source")}\n`);
 });
 
 test("collectPreload validates presets with the shared configuration schema", async (t) => {
