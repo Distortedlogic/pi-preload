@@ -74,33 +74,28 @@ function isObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function configurationSourceError(sourcePath: string, kind: "parse" | "validation", error: unknown) {
-	const detail = error instanceof Error ? error.message : String(error);
-	const message =
-		kind === "parse"
-			? `Could not parse ${sourcePath} at ${OWNED_SECTION_PATH}: ${detail}`
-			: `Invalid configuration in ${sourcePath} at ${OWNED_SECTION_PATH}: ${detail}`;
-	return new Error(message, { cause: error });
-}
-
-async function readYamlSource(sourcePath: string) {
+async function loadYamlConfiguration(sourcePath: string): Promise<Configuration>;
+async function loadYamlConfiguration(
+	sourcePath: string,
+	select: (document: unknown) => unknown,
+): Promise<Configuration | undefined>;
+async function loadYamlConfiguration(sourcePath: string, select?: (document: unknown) => unknown) {
+	let document: unknown;
 	try {
-		return await readYamlFile(sourcePath);
+		document = await readYamlFile(sourcePath);
 	} catch (error) {
-		throw configurationSourceError(sourcePath, "parse", error);
+		const detail = error instanceof Error ? error.message : String(error);
+		throw new Error(`Could not parse ${sourcePath} at ${OWNED_SECTION_PATH}: ${detail}`, { cause: error });
 	}
-}
 
-function validateConfiguration(value: unknown, sourcePath: string): Configuration {
+	const value = select ? select(document) : document;
+	if (select && value === undefined) return;
 	try {
 		return Value.Parse(configurationSchema, value);
 	} catch (error) {
-		throw configurationSourceError(sourcePath, "validation", error);
+		const detail = error instanceof Error ? error.message : String(error);
+		throw new Error(`Invalid configuration in ${sourcePath} at ${OWNED_SECTION_PATH}: ${detail}`, { cause: error });
 	}
-}
-
-async function readConfiguration(sourcePath: string) {
-	return validateConfiguration(await readYamlSource(sourcePath), sourcePath);
 }
 
 function getOwnedConfiguration(document: unknown) {
@@ -131,9 +126,7 @@ async function loadProjectConfiguration(cwd: string, signal: AbortSignal) {
 		throw new Error(`${sourcePath} at ${OWNED_SECTION_PATH} exceeds ${formatSize(MAX_FILE_BYTES)}.`);
 	}
 
-	const value = getOwnedConfiguration(await readYamlSource(sourcePath));
-	if (value === undefined) return;
-	return validateConfiguration(value, sourcePath);
+	return loadYamlConfiguration(sourcePath, getOwnedConfiguration);
 }
 
 function validateContextName(name: string) {
@@ -157,7 +150,7 @@ async function loadConfiguration(
 ): Promise<PreloadConfiguration> {
 	const path = resolve(configPath);
 	if (ancestors.includes(path)) throw new Error(`Circular context preload preset: ${path}`);
-	const config = configValue === undefined ? await readConfiguration(path) : configValue;
+	const config = configValue === undefined ? await loadYamlConfiguration(path) : configValue;
 	const ownFiles = config.files ?? [];
 	if (ancestors.length > 0) {
 		const relativePattern = ownFiles.find(
