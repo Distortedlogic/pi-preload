@@ -70,10 +70,6 @@ type ContextSource = { name: string; facts: Record<string, unknown> };
 
 const CONTEXT_NAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
 
-function isObject(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 async function loadYamlConfiguration(sourcePath: string): Promise<Configuration>;
 async function loadYamlConfiguration(
 	sourcePath: string,
@@ -98,35 +94,30 @@ async function loadYamlConfiguration(sourcePath: string, select?: (document: unk
 	}
 }
 
-function getOwnedConfiguration(document: unknown) {
-	if (!isObject(document)) return;
-	return document["pi-context-preload"];
-}
-
 async function loadProjectConfiguration(cwd: string, signal: AbortSignal) {
-	const [source] = await globby("AGENTS.yml", {
-		cwd,
-		onlyFiles: false,
-		followSymbolicLinks: false,
-		objectMode: true,
-		stats: true,
-	});
+	const sourcePath = resolve(cwd, "AGENTS.yml");
 	signal.throwIfAborted();
-	if (!source) return;
-
-	const sourcePath = resolve(cwd, source.path);
-	if (!source.dirent.isFile()) {
+	let sourceStats: Stats;
+	try {
+		sourceStats = await stat(sourcePath);
+	} catch (error) {
+		signal.throwIfAborted();
+		if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
+		throw error;
+	}
+	signal.throwIfAborted();
+	if (!sourceStats.isFile()) {
 		throw new Error(`Invalid configuration source ${sourcePath} at ${OWNED_SECTION_PATH}: expected a regular file.`);
 	}
-	const sourceBytes = source.stats?.size;
-	if (sourceBytes === undefined) {
-		throw new Error(`Could not read configuration metadata for ${sourcePath} at ${OWNED_SECTION_PATH}.`);
-	}
-	if (sourceBytes > MAX_FILE_BYTES) {
+	if (sourceStats.size > MAX_FILE_BYTES) {
 		throw new Error(`${sourcePath} at ${OWNED_SECTION_PATH} exceeds ${formatSize(MAX_FILE_BYTES)}.`);
 	}
 
-	return loadYamlConfiguration(sourcePath, getOwnedConfiguration);
+	return loadYamlConfiguration(sourcePath, (document) =>
+		typeof document === "object" && document !== null && !Array.isArray(document)
+			? (document as Record<string, unknown>)["pi-context-preload"]
+			: undefined,
+	);
 }
 
 function validateContextName(name: string) {
