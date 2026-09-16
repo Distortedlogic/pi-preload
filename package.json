@@ -4,6 +4,10 @@
   "private": true,
   "description": "Preload pi chat context from AGENTS.yml file globs.",
   "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./agents": "./agents.ts"
+  },
   "keywords": [
     "pi-package"
   ],
@@ -21,6 +25,7 @@
   },
   "files": [
     "index.ts",
+    "agents.ts",
     "README.md",
     "LICENSE",
     "context",

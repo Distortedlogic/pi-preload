@@ -10,5 +10,5 @@
     "types": ["node"],
     "verbatimModuleSyntax": true
   },
-  "include": ["index.ts", "context/**/*.ts", "test/**/*.ts"]
+  "include": ["agents.ts", "index.ts", "context/**/*.ts", "test/**/*.ts"]
 }
