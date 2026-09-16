@@ -353,7 +353,14 @@ export async function collectPreload(
 			} catch {
 				throw new Error(`${file.path} is not valid UTF-8 text.`);
 			}
-			return [{ type: "text", text: `File: ${file.path}\n\n${text}` }];
+			const label = JSON.stringify(file.path);
+			const newline = text.endsWith("\n") ? "" : "\n";
+			return [
+				{
+					type: "text",
+					text: `===== BEGIN FILE ${label} =====\n${text}${newline}===== END FILE ${label} =====`,
+				},
+			];
 		},
 		{ concurrency: CONCURRENCY, signal },
 	);
