@@ -10,10 +10,11 @@ const extensionPath = fileURLToPath(new URL("../index.ts", import.meta.url));
 const codingAgentEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
 const cliPath = join(dirname(codingAgentEntry), "cli.js");
 
-function agentsConfiguration(configuration: unknown, unrelated: Record<string, unknown> = {}) {
+function agentsConfiguration(configuration: unknown, otherExtensions: Record<string, unknown> = {}) {
 	return JSON.stringify({
-		...unrelated,
-		pi: { extensions: { "pi-context-preload": configuration } },
+		pi: {
+			extensions: { ...otherExtensions, "pi-context-preload": configuration },
+		},
 	});
 }
 
@@ -32,8 +33,8 @@ test("Pi preloads valid AGENTS.yml configuration", { timeout: 20_000 }, async (t
 			agentsConfiguration(
 				{ files: ["nested/**/*"] },
 				{
-					modes: { review: "Review changes" },
-					prompts: { summarize: "Summarize changes" },
+					"pi-modes": { review: "Review changes" },
+					"pi-prompts": { prompts: { summarize: { body: "Summarize changes" } } },
 				},
 			),
 		),
@@ -72,7 +73,7 @@ test("Pi preloads valid AGENTS.yml configuration", { timeout: 20_000 }, async (t
 
 test("Pi ignores a missing pi.extensions.pi-context-preload configuration", { timeout: 20_000 }, async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-e2e-"));
-	await writeFile(join(project, "AGENTS.yml"), JSON.stringify({ modes: { review: "Review changes" } }));
+	await writeFile(join(project, "AGENTS.yml"), JSON.stringify({ unrelated: true }));
 
 	const client = new RpcClient({
 		cliPath,
@@ -162,7 +163,7 @@ for (const [name, source] of [
 
 test("Pi does not read AGENTS.yml preload configuration for an untrusted project", { timeout: 20_000 }, async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-e2e-"));
-	await writeFile(join(project, "AGENTS.yml"), "preload: [\n");
+	await writeFile(join(project, "AGENTS.yml"), "pi: [\n");
 	const extensionErrors: string[] = [];
 
 	const client = new RpcClient({

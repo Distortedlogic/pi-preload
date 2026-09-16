@@ -1,6 +1,6 @@
 ---
 name: context-preload-authoring
-description: Use when creating, changing, or auditing a repository AGENTS.yml preload object. Applies the local repository-mapping, source-glob, exclusion, and preload-limit rules.
+description: Use when creating, changing, or auditing a repository AGENTS.yml pi.extensions.pi-context-preload object. Applies the local repository-mapping, source-glob, exclusion, and preload-limit rules.
 ---
 
 # Local AGENTS.yml preload procedure
@@ -22,25 +22,28 @@ Do not read lock files while mapping.
 
 ## Build the configuration
 
-Edit the `preload` object in the root `<cwd>/AGENTS.yml`. Do not replace the complete document. Preserve unrelated top-level keys, including existing `modes` and `prompts` maps. Under `preload`, use `extends` and `files` with quoted string lists. Shared presets use the same inner format.
+Edit `pi.extensions.pi-context-preload` in the root `<cwd>/AGENTS.yml`. Do not replace the complete document. Preserve unrelated top-level keys and other `pi.extensions` entries. Use `extends` and `files` with quoted string lists. Shared presets use the same inner format.
 
 Name useful root files explicitly. Do not use `**/*` at the repository root.
 
 Use directory and programming-language suffix globs for source code. This keeps renamed and new source files in context:
 
 ```yaml
-preload:
-  extends:
-    - "common"
-  files:
-    - "package.json"
-    - "tsconfig.json"
-    - "src/**/*.{py,ts,rs}"
-modes:
-  review: "Review the changes."
-prompts:
-  summarize:
-    body: "Summarize the changes."
+pi:
+  extensions:
+    pi-context-preload:
+      extends:
+        - "common"
+      files:
+        - "package.json"
+        - "tsconfig.json"
+        - "src/**/*.{py,ts,rs}"
+    pi-modes:
+      review: "Review the changes."
+    pi-prompts:
+      prompts:
+        summarize:
+          body: "Summarize the changes."
 ```
 
 Use only suffixes found in the target source directory.
@@ -48,11 +51,13 @@ Use only suffixes found in the target source directory.
 For selected monorepo packages, prefer narrow brace globs:
 
 ```yaml
-preload:
-  extends: []
-  files:
-    - "packages/{core,extension}/{package.json,tsconfig.json}"
-    - "packages/{core,extension}/src/**/*.{ts,tsx}"
+pi:
+  extensions:
+    pi-context-preload:
+      extends: []
+      files:
+        - "packages/{core,extension}/{package.json,tsconfig.json}"
+        - "packages/{core,extension}/src/**/*.{ts,tsx}"
 ```
 
 Use explicit paths for suffixless files and selected root configuration. Use a parent or sibling glob only when it is commonly required for work in this repository.

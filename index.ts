@@ -100,7 +100,7 @@ function validateConfiguration(value: unknown, sourcePath: string): Configuratio
 }
 
 async function readConfiguration(sourcePath: string) {
-	return validateConfiguration(await readYamlSource(sourcePath), sourcePath);
+	return validateConfiguration(getOwnedConfiguration(await readYamlSource(sourcePath)), sourcePath);
 }
 
 function getOwnedConfiguration(document: unknown) {
