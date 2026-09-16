@@ -32,6 +32,10 @@ async function createDynamicFixture(t: TestContext) {
 	return { project, presetDirectory, contextDirectory };
 }
 
+async function writePreloadConfiguration(project: string, preload: unknown) {
+	await writeFile(join(project, "AGENTS.yml"), JSON.stringify({ preload }));
+}
+
 async function writeContextSource(
 	contextDirectory: string,
 	name: string,
@@ -51,7 +55,7 @@ async function writeContextSource(
 	await Promise.all(writes);
 }
 
-test("collectPreload reads cwd, parent, and absolute globs", async (t) => {
+test("collectPreload reads AGENTS.yml preload and ignores unrelated top-level keys", async (t) => {
 	const root = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
 	t.after(async () => rm(root, { recursive: true, force: true }));
 	const project = join(root, "project");
@@ -62,8 +66,12 @@ test("collectPreload reads cwd, parent, and absolute globs", async (t) => {
 		writeFile(join(root, "parent.txt"), "parent"),
 		writeFile(absoluteFile, "absolute"),
 		writeFile(
-			join(project, "CONTEXT_PRELOAD.yml"),
-			JSON.stringify({ files: ["inside.txt", "../parent.txt", absoluteFile] }),
+			join(project, "AGENTS.yml"),
+			JSON.stringify({
+				modes: { review: "Review changes" },
+				preload: { files: ["inside.txt", "../parent.txt", absoluteFile] },
+				prompts: { summarize: "Summarize changes" },
+			}),
 		),
 	]);
 
@@ -78,6 +86,29 @@ test("collectPreload reads cwd, parent, and absolute globs", async (t) => {
 	assert.ok(text.includes(`File: ${absoluteFile}\n\nabsolute`));
 });
 
+test("collectPreload returns undefined when AGENTS.yml is absent", async (t) => {
+	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
+	t.after(async () => rm(project, { recursive: true, force: true }));
+
+	assert.equal(await collectPreload(project, AbortSignal.timeout(5_000)), undefined);
+});
+
+test("collectPreload returns undefined when AGENTS.yml has no preload key", async (t) => {
+	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
+	t.after(async () => rm(project, { recursive: true, force: true }));
+	await writeFile(join(project, "AGENTS.yml"), JSON.stringify({ modes: { review: "Review changes" } }));
+
+	assert.equal(await collectPreload(project, AbortSignal.timeout(5_000)), undefined);
+});
+
+test("collectPreload rejects an invalid AGENTS.yml preload value", async (t) => {
+	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
+	t.after(async () => rm(project, { recursive: true, force: true }));
+	await writeFile(join(project, "AGENTS.yml"), JSON.stringify({ preload: [] }));
+
+	await assert.rejects(collectPreload(project, AbortSignal.timeout(5_000)), /AGENTS\.yml.*preload/);
+});
+
 test("collectPreload merges named presets with local globs", async (t) => {
 	const root = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
 	t.after(async () => rm(root, { recursive: true, force: true }));
@@ -87,10 +118,7 @@ test("collectPreload merges named presets with local globs", async (t) => {
 	const excludedPattern = `!${join(project, "src", "excluded.ts")}`;
 	await Promise.all([mkdir(join(project, "src"), { recursive: true }), mkdir(presetDirectory)]);
 	await Promise.all([
-		writeFile(
-			join(project, "CONTEXT_PRELOAD.yml"),
-			JSON.stringify({ extends: ["common"], files: ["local.txt", excludedPattern] }),
-		),
+		writePreloadConfiguration(project, { extends: ["common"], files: ["local.txt", excludedPattern] }),
 		writeFile(join(presetDirectory, "common.yml"), JSON.stringify({ files: [sourcePattern] })),
 		writeFile(join(project, "src", "included.ts"), "included"),
 		writeFile(join(project, "src", "excluded.ts"), "excluded"),
@@ -110,7 +138,7 @@ test("collectPreload excludes ignored and lock files from content and tree", asy
 	t.after(async () => rm(project, { recursive: true, force: true }));
 	await Promise.all([mkdir(join(project, ".git")), mkdir(join(project, "ignored")), mkdir(join(project, "nested"))]);
 	await Promise.all([
-		writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify({ files: ["**/*", "PRELOAD.md", "!excluded.ts"] })),
+		writePreloadConfiguration(project, { files: ["**/*", "PRELOAD.md", "!excluded.ts"] }),
 		writeFile(join(project, ".gitignore"), "ignored/\n"),
 		writeFile(join(project, ".toolrc"), "hidden configuration"),
 		writeFile(join(project, "source.ts"), "source"),
@@ -124,9 +152,9 @@ test("collectPreload excludes ignored and lock files from content and tree", asy
 	const result = await collectPreload(project, AbortSignal.timeout(5_000));
 
 	assert.ok(result);
-	assert.equal(result.count, 2);
+	assert.equal(result.count, 1);
 	const paths = textBlocks(result.blocks.slice(0, -1)).map((block) => block.text.slice(6, block.text.indexOf("\n\n")));
-	assert.deepEqual(paths, ["CONTEXT_PRELOAD.yml", "source.ts"]);
+	assert.deepEqual(paths, ["source.ts"]);
 	const tree = await readFile(join(project, "TREE.txt"), "utf8");
 	const treeBlock = textBlocks(result.blocks.slice(-1))[0];
 	assert.equal(treeBlock?.text, `File: TREE.txt\n\n${tree}`);
@@ -136,13 +164,13 @@ test("collectPreload excludes ignored and lock files from content and tree", asy
 	assert.match(tree, /source\.ts/);
 	assert.doesNotMatch(
 		tree,
-		/CONTEXT_PRELOAD\.yml|PRELOAD\.md|TREE\.txt|excluded\.ts|package-lock\.json|uv\.lock|secret\.txt|\.git\/config/,
+		/AGENTS\.yml|PRELOAD\.md|TREE\.txt|excluded\.ts|package-lock\.json|uv\.lock|secret\.txt|\.git\/config/,
 	);
 
 	await writeFile(join(project, "PRELOAD.md"), "stale snapshot");
 	const repeatedResult = await collectPreload(project, AbortSignal.timeout(5_000));
 	assert.ok(repeatedResult);
-	assert.equal(repeatedResult.count, 2);
+	assert.equal(repeatedResult.count, 1);
 	assert.doesNotMatch(
 		textBlocks(repeatedResult.blocks)
 			.map((block) => block.text)
@@ -158,7 +186,7 @@ test("collectPreload excludes ignored and lock files from content and tree", asy
 test("collectPreload rejects an invalid glob list", async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
 	t.after(async () => rm(project, { recursive: true, force: true }));
-	await writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify({ files: [42] }));
+	await writePreloadConfiguration(project, { files: [42] });
 
 	await assert.rejects(collectPreload(project, AbortSignal.timeout(5_000)));
 });
@@ -167,7 +195,7 @@ test("collectPreload rejects an explicitly selected non-image binary", async (t)
 	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
 	t.after(async () => rm(project, { recursive: true, force: true }));
 	await Promise.all([
-		writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify({ files: ["invalid.txt"] })),
+		writePreloadConfiguration(project, { files: ["invalid.txt"] }),
 		writeFile(join(project, "invalid.txt"), Uint8Array.from([0xff])),
 	]);
 
@@ -182,7 +210,7 @@ test("collectPreload snapshots image blocks in returned order", async (t) => {
 		"base64",
 	);
 	await Promise.all([
-		writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify({ files: ["image.png"] })),
+		writePreloadConfiguration(project, { files: ["image.png"] }),
 		writeFile(join(project, "image.png"), image),
 	]);
 
@@ -203,10 +231,7 @@ test("collectPreload inherits and deduplicates context names in order", async (t
 		["first", "second", "third"].map((name) => writeContextSource(contextDirectory, name, { template: `${name}\n` })),
 	);
 	await Promise.all([
-		writeFile(
-			join(project, "CONTEXT_PRELOAD.yml"),
-			JSON.stringify({ extends: ["base", "extra"], contexts: ["third", "first"] }),
-		),
+		writePreloadConfiguration(project, { extends: ["base", "extra"], contexts: ["third", "first"] }),
 		writeFile(join(presetDirectory, "base.yml"), JSON.stringify({ contexts: ["first", "second"] })),
 		writeFile(join(presetDirectory, "extra.yml"), JSON.stringify({ contexts: ["second", "third"] })),
 	]);
@@ -224,7 +249,7 @@ test("collectPreload inherits and deduplicates context names in order", async (t
 test("collectPreload rejects unsafe context names", async (t) => {
 	const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
 	for (const name of ["", "/absolute", "nested/source", "nested\\source", ".", ".."]) {
-		await writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify({ contexts: [name] }));
+		await writePreloadConfiguration(project, { contexts: [name] });
 		const preload = collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory);
 		if (name === "") {
 			await assert.rejects(preload);
@@ -248,7 +273,7 @@ test("collectPreload requires regular convention entry files", async (t) => {
 	]);
 
 	for (const name of ["missing-facts", "missing-template", "non-regular"]) {
-		await writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify({ contexts: [name] }));
+		await writePreloadConfiguration(project, { contexts: [name] });
 		await assert.rejects(
 			collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory),
 			new RegExp(`Unknown context source: ${name}`),
@@ -263,7 +288,7 @@ test("collectPreload does not import an unselected context source", async (t) =>
 			facts: "export default (\n",
 			template: "unused",
 		}),
-		writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify({ files: ["selected.txt"] })),
+		writePreloadConfiguration(project, { files: ["selected.txt"] }),
 		writeFile(join(project, "selected.txt"), "selected"),
 	]);
 
@@ -281,7 +306,7 @@ test("collectPreload skips rendering when context facts are undefined", async (t
 			facts: "export default async function () { return undefined; }\n",
 			template: "{{ facts.missing }}",
 		}),
-		writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify({ contexts: ["not-applicable"] })),
+		writePreloadConfiguration(project, { contexts: ["not-applicable"] }),
 	]);
 
 	const result = await collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory);
@@ -301,7 +326,7 @@ test("collectPreload renders package context before files with one final newline
 			template: 'Project: {{ facts.name }}\r\n{% include "sample/fragment.md" %}',
 			fragments: { "fragment.md": "Fragment: {{ facts.detail }}\r\n" },
 		}),
-		writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify({ contexts: ["sample"], files: ["selected.txt"] })),
+		writePreloadConfiguration(project, { contexts: ["sample"], files: ["selected.txt"] }),
 		writeFile(join(project, "selected.txt"), "selected"),
 	]);
 
@@ -349,7 +374,7 @@ test("collectPreload reports source-scoped context failures", async (t) => {
 		["strict-undefined", /Context source strict-undefined render failed:/],
 	];
 	for (const [name, pattern] of cases) {
-		await writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify({ contexts: [name] }));
+		await writePreloadConfiguration(project, { contexts: [name] });
 		await assert.rejects(
 			collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory),
 			pattern,
@@ -362,7 +387,7 @@ test("collectPreload applies dynamic block and combined context limits", async (
 		const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
 		await Promise.all([
 			writeContextSource(contextDirectory, "too-large", { template: "x".repeat(256 * 1024) }),
-			writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify({ contexts: ["too-large"] })),
+			writePreloadConfiguration(project, { contexts: ["too-large"] }),
 		]);
 
 		await assert.rejects(
@@ -378,7 +403,7 @@ test("collectPreload applies dynamic block and combined context limits", async (
 			names.map((name) => writeContextSource(contextDirectory, name, { template: "x".repeat(255 * 1024) })),
 		);
 		await Promise.all([
-			writeFile(join(project, "CONTEXT_PRELOAD.yml"), JSON.stringify({ contexts: names, files: ["selected.txt"] })),
+			writePreloadConfiguration(project, { contexts: names, files: ["selected.txt"] }),
 			writeFile(join(project, "selected.txt"), "x".repeat(8 * 1024)),
 		]);
 

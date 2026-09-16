@@ -103,10 +103,11 @@ async function loadConfiguration(
 	presetDirectory: string,
 	signal: AbortSignal,
 	ancestors: string[] = [],
+	configValue?: unknown,
 ): Promise<PreloadConfiguration> {
 	const path = resolve(configPath);
 	if (ancestors.includes(path)) throw new Error(`Circular context preload preset: ${path}`);
-	const config = Value.Parse(PRELOAD_CONFIG, await readYamlFile(path));
+	const config = Value.Parse(PRELOAD_CONFIG, configValue === undefined ? await readYamlFile(path) : configValue);
 	const ownFiles = config.files ?? [];
 	if (ancestors.length > 0) {
 		const relativePattern = ownFiles.find(
@@ -265,7 +266,7 @@ async function collectFilesystemTree(cwd: string, ignorePatterns: string[], sign
 				".git/**",
 				"**/.git",
 				"**/.git/**",
-				"CONTEXT_PRELOAD.yml",
+				"AGENTS.yml",
 				PRELOAD_FILE,
 				TREE_FILE,
 				...LOCK_FILE_GLOBS,
@@ -345,7 +346,7 @@ export async function collectPreload(
 	presetDirectory = DEFAULT_PRESET_DIRECTORY,
 	contextDirectory = DEFAULT_CONTEXT_DIRECTORY,
 ) {
-	const [config] = await globby("CONTEXT_PRELOAD.yml", {
+	const [config] = await globby("AGENTS.yml", {
 		cwd,
 		onlyFiles: false,
 		followSymbolicLinks: false,
@@ -354,14 +355,32 @@ export async function collectPreload(
 	});
 	signal.throwIfAborted();
 	if (!config) return;
-	if (!config.dirent.isFile()) throw new Error("CONTEXT_PRELOAD.yml must be a regular file.");
+	if (!config.dirent.isFile()) throw new Error("AGENTS.yml must be a regular file.");
 	const configBytes = config.stats?.size;
-	if (configBytes === undefined) throw new Error("Could not read CONTEXT_PRELOAD.yml metadata.");
+	if (configBytes === undefined) throw new Error("Could not read AGENTS.yml metadata.");
 	if (configBytes > MAX_FILE_BYTES) {
-		throw new Error(`CONTEXT_PRELOAD.yml exceeds ${formatSize(MAX_FILE_BYTES)}.`);
+		throw new Error(`AGENTS.yml exceeds ${formatSize(MAX_FILE_BYTES)}.`);
 	}
 
-	const { files: patterns, contexts } = await loadConfiguration(resolve(cwd, config.path), presetDirectory, signal);
+	let agentsDocument: unknown;
+	try {
+		agentsDocument = await readYamlFile(resolve(cwd, config.path));
+	} catch (error) {
+		const detail = error instanceof Error ? error.message : String(error);
+		throw new Error(`Could not read AGENTS.yml preload key: ${detail}`, { cause: error });
+	}
+	if (typeof agentsDocument !== "object" || agentsDocument === null || Array.isArray(agentsDocument)) return;
+	const preload = (agentsDocument as Record<string, unknown>).preload;
+	if (preload === undefined) return;
+
+	let configuration: PreloadConfiguration;
+	try {
+		configuration = await loadConfiguration(resolve(cwd, config.path), presetDirectory, signal, [], preload);
+	} catch (error) {
+		const detail = error instanceof Error ? error.message : String(error);
+		throw new Error(`Invalid AGENTS.yml preload key: ${detail}`, { cause: error });
+	}
+	const { files: patterns, contexts } = configuration;
 	const contextBlocks = await loadContextSources(cwd, contexts, contextDirectory, signal);
 	signal.throwIfAborted();
 	const includePatterns = patterns.filter((pattern) => !pattern.startsWith("!"));
@@ -373,7 +392,7 @@ export async function collectPreload(
 			: await globby(includePatterns, {
 					cwd,
 					gitignore: true,
-					ignore: [PRELOAD_FILE, TREE_FILE, ...LOCK_FILE_GLOBS, ...ignorePatterns],
+					ignore: ["AGENTS.yml", PRELOAD_FILE, TREE_FILE, ...LOCK_FILE_GLOBS, ...ignorePatterns],
 					onlyFiles: true,
 					followSymbolicLinks: false,
 					unique: true,
