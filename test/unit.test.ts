@@ -129,21 +129,22 @@ test("collectPreload merges named presets with local globs", async (t) => {
 
 	assert.ok(result);
 	assert.equal(result.count, 2);
-	const paths = textBlocks(result.blocks.slice(0, -1)).map((block) => block.text.slice(6, block.text.indexOf("\n\n")));
+	const paths = textBlocks(result.blocks).map((block) => block.text.slice(6, block.text.indexOf("\n\n")));
 	assert.deepEqual(paths, ["local.txt", join(project, "src", "included.ts")]);
 });
 
-test("collectPreload excludes ignored and lock files from content and tree", async (t) => {
+test("collectPreload excludes generated, ignored, and lock files from content", async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
 	t.after(async () => rm(project, { recursive: true, force: true }));
 	await Promise.all([mkdir(join(project, ".git")), mkdir(join(project, "ignored")), mkdir(join(project, "nested"))]);
 	await Promise.all([
-		writePreloadConfiguration(project, { files: ["**/*", "PRELOAD.md", "!excluded.ts"] }),
+		writePreloadConfiguration(project, { files: ["**/*", "PRELOAD.md", "TREE.txt", "!excluded.ts"] }),
 		writeFile(join(project, ".gitignore"), "ignored/\n"),
 		writeFile(join(project, ".toolrc"), "hidden configuration"),
 		writeFile(join(project, "source.ts"), "source"),
 		writeFile(join(project, "excluded.ts"), "excluded"),
 		writeFile(join(project, "package-lock.json"), "package lock"),
+		writeFile(join(project, "TREE.txt"), "stale tree"),
 		writeFile(join(project, ".git", "config"), "git metadata"),
 		writeFile(join(project, "ignored", "secret.txt"), "ignored"),
 		writeFile(join(project, "nested", "uv.lock"), "uv lock"),
@@ -153,34 +154,21 @@ test("collectPreload excludes ignored and lock files from content and tree", asy
 
 	assert.ok(result);
 	assert.equal(result.count, 1);
-	const paths = textBlocks(result.blocks.slice(0, -1)).map((block) => block.text.slice(6, block.text.indexOf("\n\n")));
+	const paths = textBlocks(result.blocks).map((block) => block.text.slice(6, block.text.indexOf("\n\n")));
 	assert.deepEqual(paths, ["source.ts"]);
-	const tree = await readFile(join(project, "TREE.txt"), "utf8");
-	const treeBlock = textBlocks(result.blocks.slice(-1))[0];
-	assert.equal(treeBlock?.text, `File: TREE.txt\n\n${tree}`);
-	assert.equal(await readFile(join(project, "PRELOAD.md"), "utf8"), preloadSnapshot(result.blocks));
-	assert.match(tree, /\.gitignore/);
-	assert.match(tree, /\.toolrc/);
-	assert.match(tree, /source\.ts/);
-	assert.doesNotMatch(
-		tree,
-		/AGENTS\.yml|PRELOAD\.md|TREE\.txt|excluded\.ts|package-lock\.json|uv\.lock|secret\.txt|\.git\/config/,
-	);
+	assert.equal(await readFile(join(project, "PRELOAD.md"), "utf8"), "File: source.ts\n\nsource\n");
+	assert.equal(await readFile(join(project, "TREE.txt"), "utf8"), "stale tree");
 
 	await writeFile(join(project, "PRELOAD.md"), "stale snapshot");
 	const repeatedResult = await collectPreload(project, AbortSignal.timeout(5_000));
 	assert.ok(repeatedResult);
 	assert.equal(repeatedResult.count, 1);
-	assert.doesNotMatch(
-		textBlocks(repeatedResult.blocks)
-			.map((block) => block.text)
-			.join("\n"),
-		/^File: PRELOAD\.md$/m,
+	assert.deepEqual(
+		textBlocks(repeatedResult.blocks).map((block) => block.text),
+		["File: source.ts\n\nsource"],
 	);
-	assert.doesNotMatch(await readFile(join(project, "TREE.txt"), "utf8"), /PRELOAD\.md/);
-	const repeatedSnapshot = await readFile(join(project, "PRELOAD.md"), "utf8");
-	assert.notEqual(repeatedSnapshot, "stale snapshot");
-	assert.equal(repeatedSnapshot, preloadSnapshot(repeatedResult.blocks));
+	assert.equal(await readFile(join(project, "TREE.txt"), "utf8"), "stale tree");
+	assert.equal(await readFile(join(project, "PRELOAD.md"), "utf8"), "File: source.ts\n\nsource\n");
 });
 
 test("collectPreload rejects an invalid glob list", async (t) => {
@@ -217,9 +205,9 @@ test("collectPreload snapshots image blocks in returned order", async (t) => {
 	const result = await collectPreload(project, AbortSignal.timeout(5_000));
 
 	assert.ok(result);
+	assert.equal(result.blocks.length, 2);
 	assert.equal(result.blocks[0]?.type, "text");
 	assert.equal(result.blocks[1]?.type, "image");
-	assert.equal(result.blocks[2]?.type, "text");
 	const snapshot = await readFile(join(project, "PRELOAD.md"), "utf8");
 	assert.equal(snapshot, preloadSnapshot(result.blocks));
 	assert.ok(snapshot.includes(`![Preloaded image](data:image/png;base64,${image.toString("base64")})`));
@@ -241,7 +229,7 @@ test("collectPreload inherits and deduplicates context names in order", async (t
 	assert.ok(result);
 	assert.equal(result.count, 0);
 	assert.deepEqual(
-		textBlocks(result.blocks.slice(0, -1)).map((block) => block.text),
+		textBlocks(result.blocks).map((block) => block.text),
 		["Context: first\n\nfirst\n", "Context: second\n\nsecond\n", "Context: third\n\nthird\n"],
 	);
 });
@@ -313,9 +301,7 @@ test("collectPreload skips rendering when context facts are undefined", async (t
 
 	assert.ok(result);
 	assert.equal(result.count, 0);
-	const blocks = textBlocks(result.blocks);
-	assert.equal(blocks.length, 1);
-	assert.match(blocks[0]?.text ?? "", /^File: TREE\.txt\n\n/);
+	assert.deepEqual(result.blocks, []);
 });
 
 test("collectPreload renders package context before files with one final newline", async (t) => {
@@ -336,9 +322,9 @@ test("collectPreload renders package context before files with one final newline
 	assert.equal(result.count, 1);
 	assert.equal(result.bytes, Buffer.byteLength("selected"));
 	const blocks = textBlocks(result.blocks);
+	assert.equal(blocks.length, 2);
 	assert.equal(blocks[0]?.text, "Context: sample\n\nProject: fixture\nFragment: included\n");
 	assert.equal(blocks[1]?.text, "File: selected.txt\n\nselected");
-	assert.match(blocks[2]?.text ?? "", /^File: TREE\.txt\n\n/);
 	assert.equal(await readFile(join(project, "PRELOAD.md"), "utf8"), preloadSnapshot(result.blocks));
 	assert.doesNotMatch(blocks[0]?.text ?? "", /\n\n$/);
 });

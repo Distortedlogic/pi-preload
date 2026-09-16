@@ -46,14 +46,10 @@ test("Pi preloads valid AGENTS.yml configuration", { timeout: 20_000 }, async (t
 	if (preload.role !== "custom") assert.fail("Expected a custom preload message");
 	assert.equal(preload.display, false);
 	assert.ok(Array.isArray(preload.content));
+	assert.equal(preload.content.length, 1);
 	assert.deepEqual(preload.content[0], { type: "text", text: "File: nested/context.txt\n\ne2e preloaded text" });
-	const tree = await readFile(join(project, "TREE.txt"), "utf8");
-	assert.deepEqual(preload.content[1], { type: "text", text: `File: TREE.txt\n\n${tree}` });
-	const preloadSnapshot = await readFile(join(project, "PRELOAD.md"), "utf8");
-	assert.equal(preloadSnapshot, `File: nested/context.txt\n\ne2e preloaded text\n\nFile: TREE.txt\n\n${tree}\n`);
-	assert.match(tree, /nested/);
-	assert.match(tree, /test/);
-	assert.doesNotMatch(tree, /deep\.test\.ts|AGENTS\.yml|TREE\.txt|uv\.lock/);
+	assert.equal(await readFile(join(project, "PRELOAD.md"), "utf8"), "File: nested/context.txt\n\ne2e preloaded text\n");
+	await assert.rejects(readFile(join(project, "TREE.txt"), "utf8"), /ENOENT/);
 });
 
 test("Pi ignores an absent AGENTS.yml preload configuration", { timeout: 20_000 }, async (t) => {
@@ -247,7 +243,7 @@ router = []
 	if (preload.role !== "custom") assert.fail("Expected a custom preload message");
 	assert.equal(preload.display, false);
 	assert.ok(Array.isArray(preload.content));
-	assert.equal(preload.content.length, 3);
+	assert.equal(preload.content.length, 2);
 	const contextBlock = preload.content[0];
 	assert.equal(contextBlock?.type, "text");
 	if (contextBlock?.type !== "text") assert.fail("Expected Dioxus text context");
@@ -262,6 +258,5 @@ router = []
 		/# Dioxus Routing|Initial Setup|Authentication|Real-Time and Streaming|PWA Integration|# Desktop|# Mobile|use_store|SetCookie|ServerEvents|CustomPaintSource|manganis::ffi/,
 	);
 	assert.deepEqual(preload.content[1], { type: "text", text: "File: app/src/lib.rs\n\npub fn app() {}\n" });
-	const tree = await readFile(join(project, "TREE.txt"), "utf8");
-	assert.deepEqual(preload.content[2], { type: "text", text: `File: TREE.txt\n\n${tree}` });
+	await assert.rejects(readFile(join(project, "TREE.txt"), "utf8"), /ENOENT/);
 });
