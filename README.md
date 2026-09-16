@@ -4,11 +4,26 @@ Preload trusted project context from file globs and package-owned dynamic contex
 
 ## Configuration
 
-Add `CONTEXT_PRELOAD.yml` to the project root.
+Edit the `preload` object in the root `<cwd>/AGENTS.yml`. Preserve unrelated top-level keys such as `modes` and `prompts`.
 
-- `files` selects project files with globs.
-- `contexts` selects package-owned dynamic context sources by name.
-- `extends` loads package presets before the local configuration.
+```yaml
+preload:
+  extends:
+    - "common"
+  files:
+    - "src/**/*.ts"
+  contexts:
+    - "dioxus"
+modes:
+  review: "Review the changes."
+prompts:
+  summarize:
+    body: "Summarize the changes."
+```
+
+- `preload.files` selects project files with globs.
+- `preload.contexts` selects package-owned dynamic context sources by name.
+- `preload.extends` loads package presets before the local configuration.
 
 The collector keeps the configured context order. It removes repeated context names at their first occurrence. Dynamic context blocks come before selected file blocks. `TREE.txt` is always the last block.
 
@@ -17,20 +32,22 @@ The collector keeps the configured context order. It removes repeated context na
 The `dioxus-rust` preset enables the package-owned Dioxus context source. Use this minimal project configuration:
 
 ```yaml
-extends:
-  - "dioxus-rust"
-files:
-  - "Cargo.toml"
-  - "Dioxus.toml"
-  - "src/**/*.rs"
-  - "tailwind.css"
+preload:
+  extends:
+    - "dioxus-rust"
+  files:
+    - "Cargo.toml"
+    - "Dioxus.toml"
+    - "src/**/*.rs"
+    - "tailwind.css"
 ```
 
 You can also select the source directly:
 
 ```yaml
-contexts:
-  - "dioxus"
+preload:
+  contexts:
+    - "dioxus"
 ```
 
 Cargo must be available when the `dioxus` source is selected. The source runs `cargo metadata --format-version 1 --no-deps`. It does not run a build or a build script.
