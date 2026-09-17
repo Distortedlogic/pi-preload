@@ -40,7 +40,7 @@ const LOCK_FILE_GLOBS = [
 	"**/yarn.lock",
 ];
 const MAX_FILE_BYTES = 256 * 1024;
-const MAX_TOTAL_BYTES = 1024 * 1024;
+const MAX_TOTAL_BYTES = 2 * 1024 * 1024;
 const MAX_FILES = 1000;
 const TREE_FILE = "TREE.txt";
 const PRELOAD_FILE = "PRELOAD.md";
