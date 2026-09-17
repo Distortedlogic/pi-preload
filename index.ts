@@ -1,10 +1,10 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, posix, relative, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, formatSize } from "@earendil-works/pi-coding-agent";
+import { walk } from "@secretlint/walker";
 import { fileTypeFromBuffer } from "file-type";
-import { globby } from "globby";
 import { isBinaryFile } from "isbinaryfile";
 import pMap from "p-map";
 
@@ -14,7 +14,6 @@ const MAX_TOTAL_BYTES = 1024 * 1024;
 const MAX_FILES = 1000;
 const TREE_FILE = ".pi/TREE.md";
 const PRELOAD_FILE = ".pi/PRELOAD.md";
-const PRELOAD_IGNORE_FILE = ".preloadignore";
 const DEFAULT_PRELOAD_IGNORE_FILE = fileURLToPath(new URL("./defaults/.preloadignore", import.meta.url));
 const CONCURRENCY = 8;
 const DEADLINE_MS = 30_000;
@@ -32,29 +31,31 @@ function serializePreloadBlocks(blocks: readonly PreloadBlock[]) {
 		.join("\n\n")}\n`;
 }
 
-export async function collectPreload(cwd: string, signal: AbortSignal) {
+export async function collectPreload(ctx: { cwd: string }, signal: AbortSignal) {
+	const { cwd } = ctx;
 	signal.throwIfAborted();
-	const candidates = await globby("**/*", {
-		cwd,
-		gitignore: true,
-		ignoreFiles: [DEFAULT_PRELOAD_IGNORE_FILE, PRELOAD_IGNORE_FILE],
-		onlyFiles: true,
-		followSymbolicLinks: false,
-		unique: true,
-		objectMode: true,
-		stats: true,
-	});
+	const defaultIgnorePatterns = await readFile(DEFAULT_PRELOAD_IGNORE_FILE, { encoding: "utf8", signal });
+	const candidates = (
+		await walk({
+			cwd: ctx.cwd,
+			ignoreFiles: [".preloadignore"],
+			extraIgnorePatterns: defaultIgnorePatterns.split(/\r?\n/u),
+			followSymlinks: false,
+		})
+	).map((path) => ({
+		absolutePath: path,
+		path: posix.normalize(relative(cwd, path).replaceAll(win32.sep, posix.sep)),
+	}));
 	signal.throwIfAborted();
 	const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 	const selectedFiles = await pMap(
 		candidates,
 		async (file) => {
-			const path = resolve(cwd, file.path);
-			const bytes = await readFile(path, { signal });
+			const fileStats = await lstat(file.absolutePath);
+			if (!fileStats.isFile()) throw new Error(`Not a regular file: ${file.path}`);
+			const bytes = await readFile(file.absolutePath, { signal });
 			const binary = await isBinaryFile(bytes);
-			if (!file.dirent.isFile()) throw new Error(`Not a regular file: ${file.path}`);
-			const fileBytes = file.stats?.size;
-			if (fileBytes === undefined) throw new Error(`Could not read file metadata: ${file.path}`);
+			const fileBytes = fileStats.size;
 			if (fileBytes > MAX_FILE_BYTES) {
 				throw new Error(`${file.path} is ${formatSize(fileBytes)}; the file limit is ${formatSize(MAX_FILE_BYTES)}.`);
 			}
@@ -131,7 +132,7 @@ export default function (pi: ExtensionAPI) {
 
 		try {
 			const signal = AbortSignal.timeout(DEADLINE_MS);
-			const result = await collectPreload(ctx.cwd, signal);
+			const result = await collectPreload(ctx, signal);
 			if (!result) return;
 
 			pi.sendMessage({ customType: CUSTOM_TYPE, content: result.blocks, display: false }, { triggerTurn: false });

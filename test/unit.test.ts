@@ -43,7 +43,7 @@ test("collectPreload orders files by directory then path", async (t) => {
 		writeFile(join(project, "nested", "c.txt"), "c"),
 	]);
 
-	const result = await collectPreload(project, AbortSignal.timeout(5_000));
+	const result = await collectPreload({ cwd: project }, AbortSignal.timeout(5_000));
 
 	assert.deepEqual(fileBlockPaths(result.blocks), ["a.txt", "b.txt", "nested/c.txt"]);
 });
@@ -59,7 +59,7 @@ test("collectPreload excludes generated, ignored, and lock files from content", 
 	]);
 	await Promise.all([
 		writeFile(join(project, ".gitignore"), "ignored/\n"),
-		writeFile(join(project, ".preloadignore"), "excluded.ts\n"),
+		writeFile(join(project, ".preloadignore"), ".git/\n.gitignore\n.toolrc\nexcluded.ts\nignored/\n"),
 		writeFile(join(project, ".toolrc"), "hidden configuration"),
 		writeFile(join(project, "excluded.ts"), "excluded"),
 		writeFile(join(project, "source.ts"), "source"),
@@ -70,7 +70,7 @@ test("collectPreload excludes generated, ignored, and lock files from content", 
 		writeFile(join(project, "nested", "uv.lock"), "uv lock"),
 	]);
 
-	const result = await collectPreload(project, AbortSignal.timeout(5_000));
+	const result = await collectPreload({ cwd: project }, AbortSignal.timeout(5_000));
 
 	assert.ok(result);
 	assert.equal(result.count, 1);
@@ -84,7 +84,10 @@ test("collectPreload rejects an explicitly selected non-image binary", async (t)
 	t.after(async () => rm(project, { recursive: true, force: true }));
 	await writeFile(join(project, "invalid.txt"), Uint8Array.from([0xff]));
 
-	await assert.rejects(collectPreload(project, AbortSignal.timeout(5_000)), /explicitly selected binary file/);
+	await assert.rejects(
+		collectPreload({ cwd: project }, AbortSignal.timeout(5_000)),
+		/explicitly selected binary file/,
+	);
 });
 
 test("collectPreload snapshots image blocks in returned order", async (t) => {
@@ -96,7 +99,7 @@ test("collectPreload snapshots image blocks in returned order", async (t) => {
 	);
 	await writeFile(join(project, "image.png"), image);
 
-	const result = await collectPreload(project, AbortSignal.timeout(5_000));
+	const result = await collectPreload({ cwd: project }, AbortSignal.timeout(5_000));
 
 	assert.ok(result);
 	assert.equal(result.blocks.length, 2);
