@@ -54,7 +54,9 @@ test("collectPreload excludes generated, ignored, and lock files from content", 
 	await Promise.all([mkdir(join(project, ".git")), mkdir(join(project, "ignored")), mkdir(join(project, "nested"))]);
 	await Promise.all([
 		writeFile(join(project, ".gitignore"), "ignored/\n"),
+		writeFile(join(project, ".preloadignore"), "excluded.ts\n"),
 		writeFile(join(project, ".toolrc"), "hidden configuration"),
+		writeFile(join(project, "excluded.ts"), "excluded"),
 		writeFile(join(project, "source.ts"), "source"),
 		writeFile(join(project, "package-lock.json"), "package lock"),
 		writeFile(join(project, "TREE.txt"), "stale tree"),

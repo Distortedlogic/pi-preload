@@ -7,7 +7,7 @@ import { globby } from "globby";
 import { isBinaryFile } from "isbinaryfile";
 import pMap from "p-map";
 
-const CUSTOM_TYPE = "context-preload";
+const CUSTOM_TYPE = "pi-preload";
 const LOCK_FILE_GLOBS = [
 	"**/.terraform.lock.hcl",
 	"**/bun.lock",
@@ -37,6 +37,7 @@ const MAX_TOTAL_BYTES = 1024 * 1024;
 const MAX_FILES = 1000;
 const TREE_FILE = "TREE.txt";
 const PRELOAD_FILE = "PRELOAD.md";
+const PRELOAD_IGNORE_FILE = ".preloadignore";
 const CONCURRENCY = 8;
 const DEADLINE_MS = 30_000;
 type PreloadBlock = TextContent | ImageContent;
@@ -58,7 +59,8 @@ export async function collectPreload(cwd: string, signal: AbortSignal) {
 	const candidates = await globby("**/*", {
 		cwd,
 		gitignore: true,
-		ignore: ["AGENTS.yml", PRELOAD_FILE, TREE_FILE, ...LOCK_FILE_GLOBS],
+		ignoreFiles: [PRELOAD_IGNORE_FILE],
+		ignore: [PRELOAD_IGNORE_FILE, PRELOAD_FILE, TREE_FILE, ...LOCK_FILE_GLOBS],
 		onlyFiles: true,
 		followSymbolicLinks: false,
 		unique: true,

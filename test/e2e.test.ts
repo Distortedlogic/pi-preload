@@ -20,7 +20,9 @@ test("Pi preloads project files", { timeout: 20_000 }, async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-preload-e2e-"));
 	await mkdir(join(project, "nested"));
 	await Promise.all([
+		writeFile(join(project, ".preloadignore"), "nested/ignored.txt\n"),
 		writeFile(join(project, "nested/context.txt"), "e2e preloaded text"),
+		writeFile(join(project, "nested/ignored.txt"), "must not reach context"),
 		writeFile(join(project, "nested/uv.lock"), "must not reach context"),
 	]);
 
@@ -37,7 +39,7 @@ test("Pi preloads project files", { timeout: 20_000 }, async (t) => {
 	await client.start();
 
 	const messages = await client.getMessages();
-	const preload = messages.find((message) => message.role === "custom" && message.customType === "context-preload");
+	const preload = messages.find((message) => message.role === "custom" && message.customType === "pi-preload");
 
 	assert.ok(preload);
 	if (preload.role !== "custom") assert.fail("Expected a custom preload message");
@@ -77,7 +79,7 @@ test("Pi does not preload an untrusted project", { timeout: 20_000 }, async (t) 
 
 	const messages = await client.getMessages();
 	assert.equal(
-		messages.some((message) => message.role === "custom" && message.customType === "context-preload"),
+		messages.some((message) => message.role === "custom" && message.customType === "pi-preload"),
 		false,
 	);
 	assert.deepEqual(extensionErrors, []);
