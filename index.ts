@@ -1,4 +1,4 @@
-import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, posix, relative, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
@@ -127,6 +127,14 @@ export default function (pi: ExtensionAPI) {
 					entry.type === "message" && entry.message.role === "custom" && entry.message.customType === CUSTOM_TYPE,
 			);
 		if (!ctx.isProjectTrusted() || hasPreload) return;
+
+		try {
+			const activationFile = await stat(resolve(ctx.cwd, ".preloadignore"));
+			if (!activationFile.isFile()) return;
+		} catch (error) {
+			if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
+			throw error;
+		}
 
 		ctx.ui.setStatus(CUSTOM_TYPE, "Preloading context...");
 
