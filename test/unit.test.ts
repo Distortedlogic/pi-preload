@@ -51,7 +51,12 @@ test("collectPreload orders files by directory then path", async (t) => {
 test("collectPreload excludes generated, ignored, and lock files from content", async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
 	t.after(async () => rm(project, { recursive: true, force: true }));
-	await Promise.all([mkdir(join(project, ".git")), mkdir(join(project, "ignored")), mkdir(join(project, "nested"))]);
+	await Promise.all([
+		mkdir(join(project, ".git")),
+		mkdir(join(project, ".pi")),
+		mkdir(join(project, "ignored")),
+		mkdir(join(project, "nested")),
+	]);
 	await Promise.all([
 		writeFile(join(project, ".gitignore"), "ignored/\n"),
 		writeFile(join(project, ".preloadignore"), "excluded.ts\n"),
@@ -59,7 +64,7 @@ test("collectPreload excludes generated, ignored, and lock files from content", 
 		writeFile(join(project, "excluded.ts"), "excluded"),
 		writeFile(join(project, "source.ts"), "source"),
 		writeFile(join(project, "package-lock.json"), "package lock"),
-		writeFile(join(project, "TREE.txt"), "stale tree"),
+		writeFile(join(project, ".pi", "TREE.md"), "stale tree"),
 		writeFile(join(project, ".git", "config"), "git metadata"),
 		writeFile(join(project, "ignored", "secret.txt"), "ignored"),
 		writeFile(join(project, "nested", "uv.lock"), "uv lock"),
@@ -70,8 +75,8 @@ test("collectPreload excludes generated, ignored, and lock files from content", 
 	assert.ok(result);
 	assert.equal(result.count, 1);
 	assert.deepEqual(fileBlockPaths(result.blocks), ["source.ts"]);
-	assert.equal(await readFile(join(project, "PRELOAD.md"), "utf8"), `${fileBlock("source.ts", "source")}\n`);
-	assert.equal(await readFile(join(project, "TREE.txt"), "utf8"), "stale tree");
+	assert.equal(await readFile(join(project, ".pi", "PRELOAD.md"), "utf8"), `${fileBlock("source.ts", "source")}\n`);
+	assert.equal(await readFile(join(project, ".pi", "TREE.md"), "utf8"), "stale tree");
 });
 
 test("collectPreload rejects an explicitly selected non-image binary", async (t) => {
@@ -97,7 +102,7 @@ test("collectPreload snapshots image blocks in returned order", async (t) => {
 	assert.equal(result.blocks.length, 2);
 	assert.equal(result.blocks[0]?.type, "text");
 	assert.equal(result.blocks[1]?.type, "image");
-	const snapshot = await readFile(join(project, "PRELOAD.md"), "utf8");
+	const snapshot = await readFile(join(project, ".pi", "PRELOAD.md"), "utf8");
 	assert.equal(snapshot, preloadSnapshot(result.blocks));
 	assert.ok(snapshot.includes(`![Preloaded image](data:image/png;base64,${image.toString("base64")})`));
 });

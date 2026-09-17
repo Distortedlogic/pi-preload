@@ -48,10 +48,10 @@ test("Pi preloads project files", { timeout: 20_000 }, async (t) => {
 	assert.equal(preload.content.length, 1);
 	assert.deepEqual(preload.content[0], { type: "text", text: fileBlock("nested/context.txt", "e2e preloaded text") });
 	assert.equal(
-		await readFile(join(project, "PRELOAD.md"), "utf8"),
+		await readFile(join(project, ".pi", "PRELOAD.md"), "utf8"),
 		`${fileBlock("nested/context.txt", "e2e preloaded text")}\n`,
 	);
-	await assert.rejects(readFile(join(project, "TREE.txt"), "utf8"), /ENOENT/);
+	await assert.rejects(readFile(join(project, ".pi", "TREE.md"), "utf8"), /ENOENT/);
 });
 
 test("Pi does not preload an untrusted project", { timeout: 20_000 }, async (t) => {
@@ -83,6 +83,6 @@ test("Pi does not preload an untrusted project", { timeout: 20_000 }, async (t) 
 		false,
 	);
 	assert.deepEqual(extensionErrors, []);
-	await assert.rejects(readFile(join(project, "TREE.txt"), "utf8"), /ENOENT/);
-	await assert.rejects(readFile(join(project, "PRELOAD.md"), "utf8"), /ENOENT/);
+	await assert.rejects(readFile(join(project, ".pi", "TREE.md"), "utf8"), /ENOENT/);
+	await assert.rejects(readFile(join(project, ".pi", "PRELOAD.md"), "utf8"), /ENOENT/);
 });

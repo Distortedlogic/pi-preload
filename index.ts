@@ -1,5 +1,6 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, formatSize } from "@earendil-works/pi-coding-agent";
 import { fileTypeFromBuffer } from "file-type";
@@ -8,36 +9,13 @@ import { isBinaryFile } from "isbinaryfile";
 import pMap from "p-map";
 
 const CUSTOM_TYPE = "pi-preload";
-const LOCK_FILE_GLOBS = [
-	"**/.terraform.lock.hcl",
-	"**/bun.lock",
-	"**/bun.lockb",
-	"**/Cargo.lock",
-	"**/composer.lock",
-	"**/deno.lock",
-	"**/flake.lock",
-	"**/Gemfile.lock",
-	"**/gradle.lockfile",
-	"**/mix.lock",
-	"**/npm-shrinkwrap.json",
-	"**/package-lock.json",
-	"**/Package.resolved",
-	"**/packages.lock.json",
-	"**/paket.lock",
-	"**/Pipfile.lock",
-	"**/pnpm-lock.yaml",
-	"**/Podfile.lock",
-	"**/poetry.lock",
-	"**/pubspec.lock",
-	"**/uv.lock",
-	"**/yarn.lock",
-];
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_TOTAL_BYTES = 1024 * 1024;
 const MAX_FILES = 1000;
-const TREE_FILE = "TREE.txt";
-const PRELOAD_FILE = "PRELOAD.md";
+const TREE_FILE = ".pi/TREE.md";
+const PRELOAD_FILE = ".pi/PRELOAD.md";
 const PRELOAD_IGNORE_FILE = ".preloadignore";
+const DEFAULT_PRELOAD_IGNORE_FILE = fileURLToPath(new URL("./defaults/.preloadignore", import.meta.url));
 const CONCURRENCY = 8;
 const DEADLINE_MS = 30_000;
 type PreloadBlock = TextContent | ImageContent;
@@ -59,8 +37,7 @@ export async function collectPreload(cwd: string, signal: AbortSignal) {
 	const candidates = await globby("**/*", {
 		cwd,
 		gitignore: true,
-		ignoreFiles: [PRELOAD_IGNORE_FILE],
-		ignore: [PRELOAD_IGNORE_FILE, PRELOAD_FILE, TREE_FILE, ...LOCK_FILE_GLOBS],
+		ignoreFiles: [DEFAULT_PRELOAD_IGNORE_FILE, PRELOAD_IGNORE_FILE],
 		onlyFiles: true,
 		followSymbolicLinks: false,
 		unique: true,
@@ -134,7 +111,9 @@ export async function collectPreload(cwd: string, signal: AbortSignal) {
 
 	signal.throwIfAborted();
 	const validatedPreloadSnapshot = serializePreloadBlocks(blocks);
-	await writeFile(resolve(cwd, PRELOAD_FILE), validatedPreloadSnapshot, { encoding: "utf8", signal });
+	const preloadPath = resolve(cwd, PRELOAD_FILE);
+	await mkdir(dirname(preloadPath), { recursive: true });
+	await writeFile(preloadPath, validatedPreloadSnapshot, { encoding: "utf8", signal });
 	return { blocks, count: files.length, bytes: selectedFileBytes };
 }
 
