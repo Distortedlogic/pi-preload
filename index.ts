@@ -71,7 +71,7 @@ type ContextSource = { name: string; facts: Record<string, unknown>; templatePat
 type ContextReference = { projectRoot: string; name: string };
 
 const CONTEXT_NAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
-const PROJECT_REFERENCE_PATTERN = /^\.\.?[\\/]/;
+const PROJECT_REFERENCE_PATTERN = /^\.\.?(?:[\\/]|$)/;
 
 async function loadYamlConfiguration(sourcePath: string): Promise<Configuration>;
 async function loadYamlConfiguration(
@@ -332,6 +332,7 @@ export async function collectPreload(
 	);
 	signal.throwIfAborted();
 
+	const sessionRoot = resolve(cwd);
 	const scopedCandidates = await pMap(
 		scopes,
 		async (scope) => {
@@ -340,9 +341,11 @@ export async function collectPreload(
 			const ignorePatterns = scope.files
 				.filter((pattern) => pattern.startsWith("!"))
 				.map((pattern) => pattern.slice(1));
+			const sessionScope = scope.projectRoot === sessionRoot;
 			const matches = await globby(includePatterns, {
 				cwd: scope.projectRoot,
-				gitignore: true,
+				gitignore: sessionScope,
+				ignoreFiles: sessionScope ? undefined : "**/.gitignore",
 				ignore: ["AGENTS.yml", PRELOAD_FILE, TREE_FILE, ...LOCK_FILE_GLOBS, ...ignorePatterns],
 				onlyFiles: true,
 				followSymbolicLinks: false,
