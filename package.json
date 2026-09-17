@@ -1,58 +1,58 @@
 {
-  "name": "pi-preload",
-  "version": "0.2.0",
-  "private": true,
-  "description": "Preload pi chat context from AGENTS.yml file globs.",
-  "type": "module",
-  "keywords": [
-    "pi-package"
-  ],
-  "license": "MIT",
-  "engines": {
-    "node": ">=22.19.0"
-  },
-  "scripts": {
-    "check": "npm run typecheck && npm run lint && npm test",
-    "lint": "biome check .",
-    "test": "npm run test:unit && npm run test:e2e",
-    "test:e2e": "node --experimental-strip-types --test test/e2e.test.ts",
-    "test:unit": "node --experimental-strip-types --test test/unit.test.ts",
-    "typecheck": "tsc"
-  },
-  "files": [
-    "index.ts",
-    "agents.ts",
-    "README.md",
-    "LICENSE",
-    "context",
-    "skills",
-    "presets"
-  ],
-  "pi": {
-    "extensions": [
-      "./index.ts"
-    ],
-    "skills": [
-      "./skills"
-    ]
-  },
-  "peerDependencies": {
-    "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-coding-agent": ">=0.85.1 <1",
-    "typebox": "*"
-  },
-  "devDependencies": {
-    "@biomejs/biome": "^2.5.13",
-    "@types/node": "^26.5.1",
-    "@types/nunjucks": "3.2.6",
-    "typescript": "^7.0.2"
-  },
-  "dependencies": {
-    "file-type": "22.1.0",
-    "globby": "16.2.4",
-    "isbinaryfile": "5.0.0",
-    "nunjucks": "3.2.4",
-    "p-map": "7.0.7",
-    "read-yaml-file": "3.0.0"
-  }
+	"name": "pi-preload",
+	"version": "0.2.0",
+	"private": true,
+	"description": "Preload pi chat context from AGENTS.yml file globs.",
+	"type": "module",
+	"keywords": [
+		"pi-package"
+	],
+	"license": "MIT",
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"scripts": {
+		"check": "npm run typecheck && npm run lint && npm test",
+		"lint": "biome check .",
+		"test": "npm run test:unit && npm run test:e2e",
+		"test:e2e": "node --experimental-strip-types --test test/e2e.test.ts",
+		"test:unit": "node --experimental-strip-types --test test/unit.test.ts",
+		"typecheck": "tsc"
+	},
+	"files": [
+		"index.ts",
+		"agents.ts",
+		"README.md",
+		"LICENSE",
+		"context",
+		"skills",
+		"presets"
+	],
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		],
+		"skills": [
+			"./skills"
+		]
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-ai": "*",
+		"@earendil-works/pi-coding-agent": ">=0.85.1 <1",
+		"typebox": "*"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.5.14",
+		"@types/node": "^26.5.1",
+		"@types/nunjucks": "3.2.6",
+		"typescript": "^7.0.2"
+	},
+	"dependencies": {
+		"file-type": "22.1.0",
+		"globby": "16.2.4",
+		"isbinaryfile": "5.0.0",
+		"nunjucks": "3.2.4",
+		"p-map": "7.0.7",
+		"read-yaml-file": "3.0.0"
+	}
 }
