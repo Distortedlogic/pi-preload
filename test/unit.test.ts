@@ -85,7 +85,7 @@ test("collectPreload merges named presets with local globs", async (t) => {
 
 	assert.ok(result);
 	assert.equal(result.count, 2);
-	assert.deepEqual(fileBlockPaths(result.blocks), ["local.txt", join(project, "src", "included.ts")]);
+	assert.deepEqual(fileBlockPaths(result.blocks), ["local.txt", "src/included.ts"]);
 });
 
 test("collectPreload excludes generated, ignored, and lock files from content", async (t) => {
@@ -353,6 +353,120 @@ test("collectPreload applies dynamic block and combined context limits", async (
 			/Context with headings is over/,
 		);
 	});
+});
+
+test("collectPreload extends a child directory excluded by the parent .gitignore", async (t) => {
+	const root = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
+	t.after(async () => rm(root, { recursive: true, force: true }));
+	const parent = join(root, "parent");
+	const child = join(parent, "child");
+	await Promise.all([mkdir(join(parent, ".git"), { recursive: true }), mkdir(child, { recursive: true })]);
+	const configuration: Configuration = { extends: ["./child"], files: ["**/*.txt"] };
+	await Promise.all([
+		writeFile(join(parent, ".gitignore"), "child/\n"),
+		writeFile(join(parent, "parent.txt"), "parent"),
+		writeFile(join(child, "AGENTS.yml"), JSON.stringify({ "pi-preload": { files: ["child.txt"] } })),
+		writeFile(join(child, "child.txt"), "child"),
+	]);
+
+	const result = await collectPreload(parent, AbortSignal.timeout(5_000), undefined, undefined, configuration);
+
+	assert.ok(result);
+	assert.equal(result.count, 2);
+	assert.deepEqual(fileBlockPaths(result.blocks), ["child/child.txt", "parent.txt"]);
+	assert.equal(
+		await readFile(join(parent, "PRELOAD.md"), "utf8"),
+		`${fileBlock("child/child.txt", "child")}\n\n${fileBlock("parent.txt", "parent")}\n`,
+	);
+});
+
+test("collectPreload resolves child patterns and context facts from the child root", async (t) => {
+	const root = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
+	t.after(async () => rm(root, { recursive: true, force: true }));
+	const parent = join(root, "parent");
+	const child = join(parent, "vendor", "child");
+	const contextDirectory = join(root, "context");
+	await Promise.all([mkdir(join(child, "docs"), { recursive: true }), mkdir(contextDirectory)]);
+	const configuration: Configuration = { extends: ["./vendor/child"] };
+	await Promise.all([
+		writeContextSource(contextDirectory, "probe", {
+			facts: "export default async function ({ cwd }) { return { root: cwd }; }\n",
+			template: "Root: {{ facts.root }}\n",
+		}),
+		writeFile(
+			join(child, "AGENTS.yml"),
+			JSON.stringify({ "pi-preload": { files: ["docs/*.md"], contexts: ["probe"] } }),
+		),
+		writeFile(join(child, "docs", "guide.md"), "guide"),
+	]);
+
+	const result = await collectPreload(parent, AbortSignal.timeout(5_000), undefined, contextDirectory, configuration);
+
+	assert.ok(result);
+	assert.equal(result.count, 1);
+	assert.equal(textBlocks(result.blocks)[0]?.text, `Context: probe\n\nRoot: ${child}\n`);
+	assert.deepEqual(fileBlockPaths(result.blocks), ["vendor/child/docs/guide.md"]);
+});
+
+test("collectPreload loads nested project references", async (t) => {
+	const root = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
+	t.after(async () => rm(root, { recursive: true, force: true }));
+	const parent = join(root, "parent");
+	const middle = join(parent, "middle");
+	const inner = join(middle, "inner");
+	await mkdir(inner, { recursive: true });
+	const configuration: Configuration = { extends: ["./middle"] };
+	await Promise.all([
+		writeFile(
+			join(middle, "AGENTS.yml"),
+			JSON.stringify({ "pi-preload": { extends: ["./inner"], files: ["middle.txt"] } }),
+		),
+		writeFile(join(inner, "AGENTS.yml"), JSON.stringify({ "pi-preload": { files: ["deep.txt"] } })),
+		writeFile(join(middle, "middle.txt"), "middle"),
+		writeFile(join(inner, "deep.txt"), "deep"),
+	]);
+
+	const result = await collectPreload(parent, AbortSignal.timeout(5_000), undefined, undefined, configuration);
+
+	assert.ok(result);
+	assert.equal(result.count, 2);
+	assert.deepEqual(fileBlockPaths(result.blocks), ["middle/inner/deep.txt", "middle/middle.txt"]);
+});
+
+test("collectPreload rejects circular project references", async (t) => {
+	const root = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
+	t.after(async () => rm(root, { recursive: true, force: true }));
+	const parent = join(root, "parent");
+	const child = join(parent, "child");
+	await mkdir(child, { recursive: true });
+	const configuration: Configuration = { extends: ["./child"] };
+	await writeFile(join(child, "AGENTS.yml"), JSON.stringify({ "pi-preload": { extends: [".."] } }));
+
+	await assert.rejects(
+		collectPreload(parent, AbortSignal.timeout(5_000), undefined, undefined, configuration),
+		/Circular context preload preset/,
+	);
+});
+
+test("collectPreload applies the total byte limit across project scopes", async (t) => {
+	const root = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
+	t.after(async () => rm(root, { recursive: true, force: true }));
+	const parent = join(root, "parent");
+	const child = join(parent, "child");
+	await mkdir(child, { recursive: true });
+	const configuration: Configuration = { extends: ["./child"], files: ["big-*.txt"] };
+	const writes = [writeFile(join(child, "AGENTS.yml"), JSON.stringify({ "pi-preload": { files: ["big-*.txt"] } }))];
+	for (const directory of [parent, child]) {
+		for (const name of ["big-1.txt", "big-2.txt", "big-3.txt"]) {
+			writes.push(writeFile(join(directory, name), "x".repeat(200 * 1024)));
+		}
+	}
+	await Promise.all(writes);
+
+	await assert.rejects(
+		collectPreload(parent, AbortSignal.timeout(5_000), undefined, undefined, configuration),
+		/Selected files grew beyond/,
+	);
 });
 
 test("parseDioxusMetadata handles deterministic workspace scenarios", () => {
