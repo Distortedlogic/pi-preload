@@ -22,7 +22,7 @@ Do not read lock files while mapping.
 
 ## Build the configuration
 
-Edit the top-level `pi-preload` section in the root `<cwd>/AGENTS.yml`. Do not replace the complete document. Preserve unrelated top-level keys and other extension-owned sections. Use `extends` and `files` with quoted string lists. Shared presets use the same inner format.
+Edit the top-level `pi-preload` section in the root `<cwd>/AGENTS.yml`. Do not replace the complete document. Preserve unrelated top-level keys and other extension-owned sections. Use `presets` for packaged preset names and `extends` for paths to other project directories. Use quoted string lists. Shared presets use the same inner format.
 
 Name useful root files explicitly. Do not use `**/*` at the repository root.
 
@@ -30,9 +30,9 @@ Use directory and programming-language suffix globs for source code. This keeps 
 
 ```yaml
 pi-preload:
-  extends:
+  presets:
     - "common"
-  files:
+  includes:
     - "package.json"
     - "tsconfig.json"
     - "src/**/*.{py,ts,rs}"
@@ -50,8 +50,7 @@ For selected monorepo packages, prefer narrow brace globs:
 
 ```yaml
 pi-preload:
-  extends: []
-  files:
+  includes:
     - "packages/{core,extension}/{package.json,tsconfig.json}"
     - "packages/{core,extension}/src/**/*.{ts,tsx}"
 ```

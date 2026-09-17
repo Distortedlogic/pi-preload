@@ -64,14 +64,14 @@ function serializePreloadBlocks(blocks: readonly PreloadBlock[]) {
 		.join("\n\n")}\n`;
 }
 
-type PreloadConfiguration = { files: string[]; contexts: string[] };
-type ProjectScope = { projectRoot: string; files: string[]; contexts: string[] };
+type PreloadConfiguration = { includes: string[]; excludes: string[]; contexts: string[] };
+type ProjectScope = { projectRoot: string; includes: string[]; excludes: string[]; contexts: string[] };
 type ContextFactsLoader = (input: { cwd: string; signal: AbortSignal }) => Promise<Record<string, unknown> | undefined>;
 type ContextSource = { name: string; facts: Record<string, unknown>; templatePath: string };
 type ContextReference = { projectRoot: string; name: string };
 
 const CONTEXT_NAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
-const PROJECT_REFERENCE_PATTERN = /^\.\.?(?:[\\/]|$)/;
+const PRESET_NAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
 
 async function loadYamlConfiguration(sourcePath: string): Promise<Configuration>;
 async function loadYamlConfiguration(
@@ -152,6 +152,13 @@ function validateContextName(name: string) {
 	}
 }
 
+function resolvePresetPath(presetDirectory: string, preset: string) {
+	if (!PRESET_NAME_PATTERN.test(preset)) {
+		throw new Error(`Invalid context preload preset name: ${JSON.stringify(preset)}`);
+	}
+	return resolve(presetDirectory, `${preset}.yml`);
+}
+
 async function loadPresetConfiguration(
 	config: Configuration,
 	configPath: string,
@@ -161,15 +168,19 @@ async function loadPresetConfiguration(
 ): Promise<PreloadConfiguration> {
 	const path = resolve(configPath);
 	if (ancestors.includes(path)) throw new Error(`Circular context preload preset: ${path}`);
-	const ownFiles = config.files ?? [];
-	const relativePattern = ownFiles.find((pattern) => !isAbsolute(pattern.startsWith("!") ? pattern.slice(1) : pattern));
+	if (config.extends?.length) {
+		throw new Error(`Context preload preset ${path} cannot extend project paths; use presets.`);
+	}
+	const ownIncludes = config.includes ?? [];
+	const ownExcludes = config.excludes ?? [];
+	const relativePattern = [...ownIncludes, ...ownExcludes].find((pattern) => !isAbsolute(pattern));
 	if (relativePattern) throw new Error(`Context preload preset pattern must be absolute: ${relativePattern}`);
 	const ownContexts = config.contexts ?? [];
 	const nextAncestors = [...ancestors, path];
 	const inherited = await pMap(
-		config.extends ?? [],
+		config.presets ?? [],
 		async (preset) => {
-			const presetPath = resolve(presetDirectory, `${preset}.yml`);
+			const presetPath = resolvePresetPath(presetDirectory, preset);
 			if (nextAncestors.includes(presetPath)) throw new Error(`Circular context preload preset: ${presetPath}`);
 			const presetConfiguration = await loadYamlConfiguration(presetPath);
 			return loadPresetConfiguration(presetConfiguration, presetPath, presetDirectory, signal, nextAncestors);
@@ -177,7 +188,8 @@ async function loadPresetConfiguration(
 		{ concurrency: CONCURRENCY, signal },
 	);
 	return {
-		files: [...inherited.flatMap((configuration) => configuration.files), ...ownFiles],
+		includes: [...inherited.flatMap((configuration) => configuration.includes), ...ownIncludes],
+		excludes: [...inherited.flatMap((configuration) => configuration.excludes), ...ownExcludes],
 		contexts: [...new Set([...inherited.flatMap((configuration) => configuration.contexts), ...ownContexts])],
 	};
 }
@@ -192,47 +204,37 @@ async function loadConfiguration(
 	const path = resolve(configPath);
 	if (ancestors.includes(path)) throw new Error(`Circular context preload preset: ${path}`);
 	const nextAncestors = [...ancestors, path];
-	const ownFiles = config.files ?? [];
+	const ownIncludes = config.includes ?? [];
+	const ownExcludes = config.excludes ?? [];
 	const ownContexts = config.contexts ?? [];
-	const inherited = await pMap(
-		config.extends ?? [],
-		async (reference) => {
-			if (PROJECT_REFERENCE_PATTERN.test(reference)) {
-				const referencePath = resolve(dirname(path), reference, "AGENTS.yml");
-				if (nextAncestors.includes(referencePath)) {
-					throw new Error(`Circular context preload preset: ${referencePath}`);
-				}
-				const referenceConfiguration = await loadReferencedProjectConfiguration(referencePath, signal);
-				const scopes = await loadConfiguration(
-					referenceConfiguration,
-					referencePath,
-					presetDirectory,
-					signal,
-					nextAncestors,
-				);
-				return { kind: "project" as const, scopes };
-			}
-			const presetPath = resolve(presetDirectory, `${reference}.yml`);
+	const presets = await pMap(
+		config.presets ?? [],
+		async (preset) => {
+			const presetPath = resolvePresetPath(presetDirectory, preset);
 			if (nextAncestors.includes(presetPath)) throw new Error(`Circular context preload preset: ${presetPath}`);
 			const presetConfiguration = await loadYamlConfiguration(presetPath);
-			const preset = await loadPresetConfiguration(
-				presetConfiguration,
-				presetPath,
-				presetDirectory,
-				signal,
-				nextAncestors,
-			);
-			return { kind: "preset" as const, preset };
+			return loadPresetConfiguration(presetConfiguration, presetPath, presetDirectory, signal, nextAncestors);
 		},
 		{ concurrency: CONCURRENCY, signal },
 	);
-	const scopes = inherited.flatMap((result) => (result.kind === "project" ? result.scopes : []));
-	const presets = inherited.flatMap((result) => (result.kind === "preset" ? [result.preset] : []));
+	const scopes = await pMap(
+		config.extends ?? [],
+		async (reference) => {
+			const referencePath = resolve(dirname(path), reference, "AGENTS.yml");
+			if (nextAncestors.includes(referencePath)) {
+				throw new Error(`Circular context preload preset: ${referencePath}`);
+			}
+			const referenceConfiguration = await loadReferencedProjectConfiguration(referencePath, signal);
+			return loadConfiguration(referenceConfiguration, referencePath, presetDirectory, signal, nextAncestors);
+		},
+		{ concurrency: CONCURRENCY, signal },
+	);
 	return [
-		...scopes,
+		...scopes.flat(),
 		{
 			projectRoot: dirname(path),
-			files: [...presets.flatMap((preset) => preset.files), ...ownFiles],
+			includes: [...presets.flatMap((preset) => preset.includes), ...ownIncludes],
+			excludes: [...presets.flatMap((preset) => preset.excludes), ...ownExcludes],
 			contexts: [...new Set([...presets.flatMap((preset) => preset.contexts), ...ownContexts])],
 		},
 	];
@@ -336,17 +338,13 @@ export async function collectPreload(
 	const scopedCandidates = await pMap(
 		scopes,
 		async (scope) => {
-			const includePatterns = scope.files.filter((pattern) => !pattern.startsWith("!"));
-			if (includePatterns.length === 0) return [];
-			const ignorePatterns = scope.files
-				.filter((pattern) => pattern.startsWith("!"))
-				.map((pattern) => pattern.slice(1));
+			if (scope.includes.length === 0) return [];
 			const sessionScope = scope.projectRoot === sessionRoot;
-			const matches = await globby(includePatterns, {
+			const matches = await globby(scope.includes, {
 				cwd: scope.projectRoot,
 				gitignore: sessionScope,
 				ignoreFiles: sessionScope ? undefined : "**/.gitignore",
-				ignore: ["AGENTS.yml", PRELOAD_FILE, TREE_FILE, ...LOCK_FILE_GLOBS, ...ignorePatterns],
+				ignore: ["AGENTS.yml", PRELOAD_FILE, TREE_FILE, ...LOCK_FILE_GLOBS, ...scope.excludes],
 				onlyFiles: true,
 				followSymbolicLinks: false,
 				unique: true,
@@ -367,8 +365,8 @@ export async function collectPreload(
 
 	const explicitFilePaths = new Set(
 		scopes.flatMap((scope) =>
-			scope.files
-				.filter((pattern) => !pattern.startsWith("!") && !isDynamicPattern(pattern))
+			scope.includes
+				.filter((pattern) => !isDynamicPattern(pattern))
 				.map((pattern) => resolve(scope.projectRoot, pattern)),
 		),
 	);

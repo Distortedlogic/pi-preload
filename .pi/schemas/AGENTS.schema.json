@@ -39,7 +39,13 @@
 				"extends": {
 					"$ref": "#/$defs/stringList"
 				},
-				"files": {
+				"presets": {
+					"$ref": "#/$defs/stringList"
+				},
+				"includes": {
+					"$ref": "#/$defs/stringList"
+				},
+				"excludes": {
 					"$ref": "#/$defs/stringList"
 				},
 				"contexts": {

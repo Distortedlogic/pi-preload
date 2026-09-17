@@ -1,6 +1,6 @@
 pi-preload:
-  extends:
+  presets:
     - "pi-extension"
-  files:
+  includes:
     - "index.ts"
     - "package.json"

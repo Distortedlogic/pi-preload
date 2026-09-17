@@ -71,11 +71,11 @@ test("collectPreload merges named presets with local globs", async (t) => {
 	const project = join(root, "project");
 	const presetDirectory = join(root, "presets");
 	const sourcePattern = join(project, "src", "**", "*.ts");
-	const excludedPattern = `!${join(project, "src", "excluded.ts")}`;
+	const excludedPattern = join(project, "src", "excluded.ts");
 	await Promise.all([mkdir(join(project, "src"), { recursive: true }), mkdir(presetDirectory)]);
-	const configuration: Configuration = { extends: ["common"], files: ["local.txt", excludedPattern] };
+	const configuration: Configuration = { presets: ["common"], includes: ["local.txt"], excludes: [excludedPattern] };
 	await Promise.all([
-		writeFile(join(presetDirectory, "common.yml"), JSON.stringify({ files: [sourcePattern] })),
+		writeFile(join(presetDirectory, "common.yml"), JSON.stringify({ includes: [sourcePattern] })),
 		writeFile(join(project, "src", "included.ts"), "included"),
 		writeFile(join(project, "src", "excluded.ts"), "excluded"),
 		writeFile(join(project, "local.txt"), "local"),
@@ -92,7 +92,7 @@ test("collectPreload excludes generated, ignored, and lock files from content", 
 	const project = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
 	t.after(async () => rm(project, { recursive: true, force: true }));
 	await Promise.all([mkdir(join(project, ".git")), mkdir(join(project, "ignored")), mkdir(join(project, "nested"))]);
-	const configuration: Configuration = { files: ["**/*", "PRELOAD.md", "TREE.txt", "!excluded.ts"] };
+	const configuration: Configuration = { includes: ["**/*", "PRELOAD.md", "TREE.txt"], excludes: ["excluded.ts"] };
 	await Promise.all([
 		writeFile(join(project, ".gitignore"), "ignored/\n"),
 		writeFile(join(project, ".toolrc"), "hidden configuration"),
@@ -116,7 +116,7 @@ test("collectPreload excludes generated, ignored, and lock files from content", 
 
 test("collectPreload validates presets with the shared configuration schema", async (t) => {
 	const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
-	const configuration: Configuration = { extends: ["invalid"] };
+	const configuration: Configuration = { presets: ["invalid"] };
 	await writeFile(join(presetDirectory, "invalid.yml"), JSON.stringify({ files: [42] }));
 
 	await assert.rejects(
@@ -128,7 +128,7 @@ test("collectPreload validates presets with the shared configuration schema", as
 test("collectPreload rejects an explicitly selected non-image binary", async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
 	t.after(async () => rm(project, { recursive: true, force: true }));
-	const configuration: Configuration = { files: ["invalid.txt"] };
+	const configuration: Configuration = { includes: ["invalid.txt"] };
 	await writeFile(join(project, "invalid.txt"), Uint8Array.from([0xff]));
 
 	await assert.rejects(
@@ -144,7 +144,7 @@ test("collectPreload snapshots image blocks in returned order", async (t) => {
 		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
 		"base64",
 	);
-	const configuration: Configuration = { files: ["image.png"] };
+	const configuration: Configuration = { includes: ["image.png"] };
 	await writeFile(join(project, "image.png"), image);
 
 	const result = await collectPreload(project, AbortSignal.timeout(5_000), undefined, undefined, configuration);
@@ -163,7 +163,7 @@ test("collectPreload inherits and deduplicates context names in order", async (t
 	await Promise.all(
 		["first", "second", "third"].map((name) => writeContextSource(contextDirectory, name, { template: `${name}\n` })),
 	);
-	const configuration: Configuration = { extends: ["base", "extra"], contexts: ["third", "first"] };
+	const configuration: Configuration = { presets: ["base", "extra"], contexts: ["third", "first"] };
 	await Promise.all([
 		writeFile(join(presetDirectory, "base.yml"), JSON.stringify({ contexts: ["first", "second"] })),
 		writeFile(join(presetDirectory, "extra.yml"), JSON.stringify({ contexts: ["second", "third"] })),
@@ -216,7 +216,7 @@ test("collectPreload reports a missing context source", async (t) => {
 
 test("collectPreload does not import an unselected context source", async (t) => {
 	const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
-	const configuration: Configuration = { files: ["selected.txt"] };
+	const configuration: Configuration = { includes: ["selected.txt"] };
 	await Promise.all([
 		writeContextSource(contextDirectory, "unselected", {
 			facts: "export default (\n",
@@ -263,7 +263,7 @@ test("collectPreload skips rendering when context facts are undefined", async (t
 
 test("collectPreload renders package context before files with one final newline", async (t) => {
 	const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
-	const configuration: Configuration = { contexts: ["sample"], files: ["selected.txt"] };
+	const configuration: Configuration = { contexts: ["sample"], includes: ["selected.txt"] };
 	await Promise.all([
 		writeContextSource(contextDirectory, "sample", {
 			facts: 'export default async function () { return { name: "fixture", detail: "included" }; }\n',
@@ -345,7 +345,7 @@ test("collectPreload applies dynamic block and combined context limits", async (
 		await Promise.all(
 			names.map((name) => writeContextSource(contextDirectory, name, { template: "x".repeat(255 * 1024) })),
 		);
-		const configuration: Configuration = { contexts: names, files: ["selected.txt"] };
+		const configuration: Configuration = { contexts: names, includes: ["selected.txt"] };
 		await writeFile(join(project, "selected.txt"), "x".repeat(8 * 1024));
 
 		await assert.rejects(
@@ -361,11 +361,11 @@ test("collectPreload extends a child directory excluded by the parent .gitignore
 	const parent = join(root, "parent");
 	const child = join(parent, "child");
 	await Promise.all([mkdir(join(parent, ".git"), { recursive: true }), mkdir(child, { recursive: true })]);
-	const configuration: Configuration = { extends: ["./child"], files: ["**/*.txt"] };
+	const configuration: Configuration = { extends: ["./child"], includes: ["**/*.txt"] };
 	await Promise.all([
 		writeFile(join(parent, ".gitignore"), "child/\n"),
 		writeFile(join(parent, "parent.txt"), "parent"),
-		writeFile(join(child, "AGENTS.yml"), JSON.stringify({ "pi-preload": { files: ["child.txt"] } })),
+		writeFile(join(child, "AGENTS.yml"), JSON.stringify({ "pi-preload": { includes: ["child.txt"] } })),
 		writeFile(join(child, "child.txt"), "child"),
 	]);
 
@@ -395,7 +395,7 @@ test("collectPreload resolves child patterns and context facts from the child ro
 		}),
 		writeFile(
 			join(child, "AGENTS.yml"),
-			JSON.stringify({ "pi-preload": { files: ["docs/*.md"], contexts: ["probe"] } }),
+			JSON.stringify({ "pi-preload": { includes: ["docs/*.md"], contexts: ["probe"] } }),
 		),
 		writeFile(join(child, "docs", "guide.md"), "guide"),
 	]);
@@ -419,9 +419,9 @@ test("collectPreload loads nested project references", async (t) => {
 	await Promise.all([
 		writeFile(
 			join(middle, "AGENTS.yml"),
-			JSON.stringify({ "pi-preload": { extends: ["./inner"], files: ["middle.txt"] } }),
+			JSON.stringify({ "pi-preload": { extends: ["./inner"], includes: ["middle.txt"] } }),
 		),
-		writeFile(join(inner, "AGENTS.yml"), JSON.stringify({ "pi-preload": { files: ["deep.txt"] } })),
+		writeFile(join(inner, "AGENTS.yml"), JSON.stringify({ "pi-preload": { includes: ["deep.txt"] } })),
 		writeFile(join(middle, "middle.txt"), "middle"),
 		writeFile(join(inner, "deep.txt"), "deep"),
 	]);
@@ -454,8 +454,8 @@ test("collectPreload applies the total byte limit across project scopes", async 
 	const parent = join(root, "parent");
 	const child = join(parent, "child");
 	await mkdir(child, { recursive: true });
-	const configuration: Configuration = { extends: ["./child"], files: ["big-*.txt"] };
-	const writes = [writeFile(join(child, "AGENTS.yml"), JSON.stringify({ "pi-preload": { files: ["big-*.txt"] } }))];
+	const configuration: Configuration = { extends: ["./child"], includes: ["big-*.txt"] };
+	const writes = [writeFile(join(child, "AGENTS.yml"), JSON.stringify({ "pi-preload": { includes: ["big-*.txt"] } }))];
 	for (const directory of [parent, child]) {
 		for (const name of ["big-1.txt", "big-2.txt", "big-3.txt"]) {
 			writes.push(writeFile(join(directory, name), "x".repeat(200 * 1024)));
