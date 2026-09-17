@@ -24,7 +24,7 @@ function preloadSnapshot(blocks: PreloadResult["blocks"]) {
 }
 
 async function createDynamicFixture(t: TestContext) {
-	const root = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
+	const root = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
 	t.after(async () => rm(root, { recursive: true, force: true }));
 	const project = join(root, "project");
 	const presetDirectory = join(root, "presets");
@@ -66,7 +66,7 @@ async function writeContextSource(
 }
 
 test("collectPreload merges named presets with local globs", async (t) => {
-	const root = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
+	const root = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
 	t.after(async () => rm(root, { recursive: true, force: true }));
 	const project = join(root, "project");
 	const presetDirectory = join(root, "presets");
@@ -89,7 +89,7 @@ test("collectPreload merges named presets with local globs", async (t) => {
 });
 
 test("collectPreload excludes generated, ignored, and lock files from content", async (t) => {
-	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
+	const project = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
 	t.after(async () => rm(project, { recursive: true, force: true }));
 	await Promise.all([mkdir(join(project, ".git")), mkdir(join(project, "ignored")), mkdir(join(project, "nested"))]);
 	const configuration: Configuration = { files: ["**/*", "PRELOAD.md", "TREE.txt", "!excluded.ts"] };
@@ -121,12 +121,12 @@ test("collectPreload validates presets with the shared configuration schema", as
 
 	await assert.rejects(
 		collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, configuration),
-		/invalid\.yml.*pi-context-preload/,
+		/invalid\.yml.*pi-preload/,
 	);
 });
 
 test("collectPreload rejects an explicitly selected non-image binary", async (t) => {
-	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
+	const project = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
 	t.after(async () => rm(project, { recursive: true, force: true }));
 	const configuration: Configuration = { files: ["invalid.txt"] };
 	await writeFile(join(project, "invalid.txt"), Uint8Array.from([0xff]));
@@ -138,7 +138,7 @@ test("collectPreload rejects an explicitly selected non-image binary", async (t)
 });
 
 test("collectPreload snapshots image blocks in returned order", async (t) => {
-	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-unit-"));
+	const project = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
 	t.after(async () => rm(project, { recursive: true, force: true }));
 	const image = Buffer.from(
 		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",

@@ -1,5 +1,5 @@
 {
-  "name": "pi-context-preload",
+  "name": "pi-preload",
   "version": "0.2.0",
   "private": true,
   "description": "Preload pi chat context from AGENTS.yml file globs.",

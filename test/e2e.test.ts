@@ -11,7 +11,7 @@ const codingAgentEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-c
 const cliPath = join(dirname(codingAgentEntry), "cli.js");
 
 function agentsConfiguration(configuration: unknown, otherConfiguration: Record<string, unknown> = {}) {
-	return JSON.stringify({ ...otherConfiguration, "pi-context-preload": configuration });
+	return JSON.stringify({ ...otherConfiguration, "pi-preload": configuration });
 }
 
 function fileBlock(path: string, content: string) {
@@ -21,7 +21,7 @@ function fileBlock(path: string, content: string) {
 }
 
 test("Pi preloads valid AGENTS.yml configuration", { timeout: 20_000 }, async (t) => {
-	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-e2e-"));
+	const project = await mkdtemp(join(tmpdir(), "pi-preload-e2e-"));
 	await Promise.all([mkdir(join(project, "nested")), mkdir(join(project, "test"))]);
 	await Promise.all([
 		writeFile(
@@ -68,7 +68,7 @@ test("Pi preloads valid AGENTS.yml configuration", { timeout: 20_000 }, async (t
 });
 
 test("Pi reports an invalid AGENTS.yml preload configuration", { timeout: 20_000 }, async (t) => {
-	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-e2e-"));
+	const project = await mkdtemp(join(tmpdir(), "pi-preload-e2e-"));
 	await writeFile(join(project, "AGENTS.yml"), agentsConfiguration({ files: [42] }));
 	const extensionErrors: string[] = [];
 
@@ -95,12 +95,12 @@ test("Pi reports an invalid AGENTS.yml preload configuration", { timeout: 20_000
 		messages.some((message) => message.role === "custom" && message.customType === "context-preload"),
 		false,
 	);
-	assert.ok(extensionErrors.some((error) => /AGENTS\.yml.*pi-context-preload/.test(error)));
+	assert.ok(extensionErrors.some((error) => /AGENTS\.yml.*pi-preload/.test(error)));
 });
 
 test("Pi does not read AGENTS.yml preload configuration for an untrusted project", { timeout: 20_000 }, async (t) => {
-	const project = await mkdtemp(join(tmpdir(), "pi-context-preload-e2e-"));
-	await writeFile(join(project, "AGENTS.yml"), "pi-context-preload: [\n");
+	const project = await mkdtemp(join(tmpdir(), "pi-preload-e2e-"));
+	await writeFile(join(project, "AGENTS.yml"), "pi-preload: [\n");
 	const extensionErrors: string[] = [];
 
 	const client = new RpcClient({

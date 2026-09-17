@@ -14,7 +14,7 @@ import { Value } from "typebox/value";
 import { type Configuration, configurationSchema } from "./agents.ts";
 
 const CUSTOM_TYPE = "context-preload";
-const OWNED_SECTION_PATH = "pi-context-preload";
+const OWNED_SECTION_PATH = "pi-preload";
 const LOCK_FILE_GLOBS = [
 	"**/.terraform.lock.hcl",
 	"**/bun.lock",
