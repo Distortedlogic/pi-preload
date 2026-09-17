@@ -1,6 +1,6 @@
 import type { Stats } from "node:fs";
 import { readFile, stat, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, formatSize } from "@earendil-works/pi-coding-agent";
@@ -354,7 +354,12 @@ export async function collectPreload(
 		},
 		{ concurrency: CONCURRENCY, signal },
 	);
-	const candidates = scopedCandidates.flat();
+	const candidates = new Map(
+		scopedCandidates.flat().map(({ file, projectRoot }) => {
+			const path = resolve(projectRoot, file.path);
+			return [path, { file, path }] as const;
+		}),
+	);
 	signal.throwIfAborted();
 
 	const explicitFilePaths = new Set(
@@ -366,9 +371,8 @@ export async function collectPreload(
 	);
 	const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 	const selectedFiles = await pMap(
-		candidates,
-		async ({ file, projectRoot }) => {
-			const path = resolve(projectRoot, file.path);
+		[...candidates.values()],
+		async ({ file, path }) => {
 			const bytes = await readFile(path, { signal });
 			const binary = await isBinaryFile(bytes);
 			if (binary && !explicitFilePaths.has(path)) return;
@@ -382,6 +386,7 @@ export async function collectPreload(
 				throw new Error(`${file.path} grew beyond ${formatSize(MAX_FILE_BYTES)}.`);
 			}
 
+			const labelPath = relative(cwd, path);
 			let blocks: PreloadBlock[];
 			if (binary) {
 				const fileType = await fileTypeFromBuffer(bytes);
@@ -389,7 +394,7 @@ export async function collectPreload(
 					throw new Error(`${file.path} is an explicitly selected binary file, but Pi context supports only images.`);
 				}
 				blocks = [
-					{ type: "text", text: `File: ${file.path}` },
+					{ type: "text", text: `File: ${labelPath}` },
 					{ type: "image", data: bytes.toString("base64"), mimeType: fileType.mime },
 				];
 			} else {
@@ -399,7 +404,7 @@ export async function collectPreload(
 				} catch {
 					throw new Error(`${file.path} is not valid UTF-8 text.`);
 				}
-				const label = JSON.stringify(file.path);
+				const label = JSON.stringify(labelPath);
 				const newline = text.endsWith("\n") ? "" : "\n";
 				blocks = [
 					{
