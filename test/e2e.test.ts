@@ -52,7 +52,7 @@ test("Pi preloads valid AGENTS.yml configuration", { timeout: 20_000 }, async (t
 	await client.start();
 
 	const messages = await client.getMessages();
-	const preload = messages.find((message) => message.role === "custom" && message.customType === "context-preload");
+	const preload = messages.find((message) => message.role === "custom" && message.customType === "pi-preload");
 
 	assert.ok(preload);
 	if (preload.role !== "custom") assert.fail("Expected a custom preload message");
@@ -92,7 +92,7 @@ test("Pi reports an invalid AGENTS.yml preload configuration", { timeout: 20_000
 
 	const messages = await client.getMessages();
 	assert.equal(
-		messages.some((message) => message.role === "custom" && message.customType === "context-preload"),
+		messages.some((message) => message.role === "custom" && message.customType === "pi-preload"),
 		false,
 	);
 	assert.ok(extensionErrors.some((error) => /AGENTS\.yml.*pi-preload/.test(error)));
@@ -123,7 +123,7 @@ test("Pi does not read AGENTS.yml preload configuration for an untrusted project
 
 	const messages = await client.getMessages();
 	assert.equal(
-		messages.some((message) => message.role === "custom" && message.customType === "context-preload"),
+		messages.some((message) => message.role === "custom" && message.customType === "pi-preload"),
 		false,
 	);
 	assert.deepEqual(extensionErrors, []);

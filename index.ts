@@ -13,7 +13,7 @@ import { readYamlFile } from "read-yaml-file";
 import { Value } from "typebox/value";
 import { type Configuration, configurationSchema } from "./agents.ts";
 
-const CUSTOM_TYPE = "context-preload";
+const CUSTOM_TYPE = "pi-preload";
 const OWNED_SECTION_PATH = "pi-preload";
 const LOCK_FILE_GLOBS = [
 	"**/.terraform.lock.hcl",

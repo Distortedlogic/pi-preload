@@ -1,5 +1,5 @@
 ---
-name: context-preload-authoring
+name: pi-preload-authoring
 description: Use when creating, changing, or auditing a repository AGENTS.yml top-level pi-preload object. Applies the local repository-mapping, source-glob, exclusion, and preload-limit rules.
 ---
 
