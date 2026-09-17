@@ -315,41 +315,48 @@ export async function collectPreload(
 	contextDirectory = DEFAULT_CONTEXT_DIRECTORY,
 	configuration: Configuration,
 ) {
-	const resolvedConfiguration = await loadConfiguration(
-		configuration,
-		resolve(cwd, "AGENTS.yml"),
-		presetDirectory,
-		signal,
-	);
-	const { files: patterns, contexts } = resolvedConfiguration;
+	const scopes = await loadConfiguration(configuration, resolve(cwd, "AGENTS.yml"), presetDirectory, signal);
+	const contexts = [...new Set(scopes.flatMap((scope) => scope.contexts))];
 	const contextBlocks = await loadContextSources(cwd, contexts, contextDirectory, signal);
 	signal.throwIfAborted();
-	const includePatterns = patterns.filter((pattern) => !pattern.startsWith("!"));
-	const ignorePatterns = patterns.filter((pattern) => pattern.startsWith("!")).map((pattern) => pattern.slice(1));
 
-	const candidates =
-		includePatterns.length === 0
-			? []
-			: await globby(includePatterns, {
-					cwd,
-					gitignore: true,
-					ignore: ["AGENTS.yml", PRELOAD_FILE, TREE_FILE, ...LOCK_FILE_GLOBS, ...ignorePatterns],
-					onlyFiles: true,
-					followSymbolicLinks: false,
-					unique: true,
-					objectMode: true,
-					stats: true,
-				});
+	const scopedCandidates = await pMap(
+		scopes,
+		async (scope) => {
+			const includePatterns = scope.files.filter((pattern) => !pattern.startsWith("!"));
+			if (includePatterns.length === 0) return [];
+			const ignorePatterns = scope.files
+				.filter((pattern) => pattern.startsWith("!"))
+				.map((pattern) => pattern.slice(1));
+			const matches = await globby(includePatterns, {
+				cwd: scope.projectRoot,
+				gitignore: true,
+				ignore: ["AGENTS.yml", PRELOAD_FILE, TREE_FILE, ...LOCK_FILE_GLOBS, ...ignorePatterns],
+				onlyFiles: true,
+				followSymbolicLinks: false,
+				unique: true,
+				objectMode: true,
+				stats: true,
+			});
+			return matches.map((file) => ({ file, projectRoot: scope.projectRoot }));
+		},
+		{ concurrency: CONCURRENCY, signal },
+	);
+	const candidates = scopedCandidates.flat();
 	signal.throwIfAborted();
 
 	const explicitFilePaths = new Set(
-		includePatterns.filter((pattern) => !isDynamicPattern(pattern)).map((pattern) => resolve(cwd, pattern)),
+		scopes.flatMap((scope) =>
+			scope.files
+				.filter((pattern) => !pattern.startsWith("!") && !isDynamicPattern(pattern))
+				.map((pattern) => resolve(scope.projectRoot, pattern)),
+		),
 	);
 	const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 	const selectedFiles = await pMap(
 		candidates,
-		async (file) => {
-			const path = resolve(cwd, file.path);
+		async ({ file, projectRoot }) => {
+			const path = resolve(projectRoot, file.path);
 			const bytes = await readFile(path, { signal });
 			const binary = await isBinaryFile(bytes);
 			if (binary && !explicitFilePaths.has(path)) return;
