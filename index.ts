@@ -65,10 +65,12 @@ function serializePreloadBlocks(blocks: readonly PreloadBlock[]) {
 }
 
 type PreloadConfiguration = { files: string[]; contexts: string[] };
+type ProjectScope = { projectRoot: string; files: string[]; contexts: string[] };
 type ContextFactsLoader = (input: { cwd: string; signal: AbortSignal }) => Promise<Record<string, unknown> | undefined>;
 type ContextSource = { name: string; facts: Record<string, unknown>; templatePath: string };
 
 const CONTEXT_NAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
+const PROJECT_REFERENCE_PATTERN = /^\.\.?[\\/]/;
 
 async function loadYamlConfiguration(sourcePath: string): Promise<Configuration>;
 async function loadYamlConfiguration(
@@ -94,8 +96,13 @@ async function loadYamlConfiguration(sourcePath: string, select?: (document: unk
 	}
 }
 
-async function loadProjectConfiguration(cwd: string, signal: AbortSignal) {
-	const sourcePath = resolve(cwd, "AGENTS.yml");
+function selectOwnedSection(document: unknown) {
+	return typeof document === "object" && document !== null && !Array.isArray(document)
+		? (document as Record<string, unknown>)[OWNED_SECTION_PATH]
+		: undefined;
+}
+
+async function statProjectConfiguration(sourcePath: string, signal: AbortSignal) {
 	signal.throwIfAborted();
 	let sourceStats: Stats;
 	try {
@@ -112,12 +119,24 @@ async function loadProjectConfiguration(cwd: string, signal: AbortSignal) {
 	if (sourceStats.size > MAX_FILE_BYTES) {
 		throw new Error(`${sourcePath} at ${OWNED_SECTION_PATH} exceeds ${formatSize(MAX_FILE_BYTES)}.`);
 	}
+	return sourceStats;
+}
 
-	return loadYamlConfiguration(sourcePath, (document) =>
-		typeof document === "object" && document !== null && !Array.isArray(document)
-			? (document as Record<string, unknown>)[OWNED_SECTION_PATH]
-			: undefined,
-	);
+async function loadProjectConfiguration(cwd: string, signal: AbortSignal) {
+	const sourcePath = resolve(cwd, "AGENTS.yml");
+	if (!(await statProjectConfiguration(sourcePath, signal))) return;
+	return loadYamlConfiguration(sourcePath, selectOwnedSection);
+}
+
+async function loadReferencedProjectConfiguration(sourcePath: string, signal: AbortSignal) {
+	if (!(await statProjectConfiguration(sourcePath, signal))) {
+		throw new Error(`Referenced project configuration not found: ${sourcePath}`);
+	}
+	const configuration = await loadYamlConfiguration(sourcePath, selectOwnedSection);
+	if (!configuration) {
+		throw new Error(`Referenced project configuration ${sourcePath} has no ${OWNED_SECTION_PATH} section.`);
+	}
+	return configuration;
 }
 
 function validateContextName(name: string) {
@@ -132,31 +151,27 @@ function validateContextName(name: string) {
 	}
 }
 
-async function loadConfiguration(
+async function loadPresetConfiguration(
 	config: Configuration,
 	configPath: string,
 	presetDirectory: string,
 	signal: AbortSignal,
-	ancestors: string[] = [],
+	ancestors: string[],
 ): Promise<PreloadConfiguration> {
 	const path = resolve(configPath);
 	if (ancestors.includes(path)) throw new Error(`Circular context preload preset: ${path}`);
 	const ownFiles = config.files ?? [];
-	if (ancestors.length > 0) {
-		const relativePattern = ownFiles.find(
-			(pattern) => !isAbsolute(pattern.startsWith("!") ? pattern.slice(1) : pattern),
-		);
-		if (relativePattern) throw new Error(`Context preload preset pattern must be absolute: ${relativePattern}`);
-	}
+	const relativePattern = ownFiles.find((pattern) => !isAbsolute(pattern.startsWith("!") ? pattern.slice(1) : pattern));
+	if (relativePattern) throw new Error(`Context preload preset pattern must be absolute: ${relativePattern}`);
 	const ownContexts = config.contexts ?? [];
+	const nextAncestors = [...ancestors, path];
 	const inherited = await pMap(
 		config.extends ?? [],
 		async (preset) => {
 			const presetPath = resolve(presetDirectory, `${preset}.yml`);
-			const presetAncestors = [...ancestors, path];
-			if (presetAncestors.includes(presetPath)) throw new Error(`Circular context preload preset: ${presetPath}`);
+			if (nextAncestors.includes(presetPath)) throw new Error(`Circular context preload preset: ${presetPath}`);
 			const presetConfiguration = await loadYamlConfiguration(presetPath);
-			return loadConfiguration(presetConfiguration, presetPath, presetDirectory, signal, presetAncestors);
+			return loadPresetConfiguration(presetConfiguration, presetPath, presetDirectory, signal, nextAncestors);
 		},
 		{ concurrency: CONCURRENCY, signal },
 	);
@@ -164,6 +179,62 @@ async function loadConfiguration(
 		files: [...inherited.flatMap((configuration) => configuration.files), ...ownFiles],
 		contexts: [...new Set([...inherited.flatMap((configuration) => configuration.contexts), ...ownContexts])],
 	};
+}
+
+async function loadConfiguration(
+	config: Configuration,
+	configPath: string,
+	presetDirectory: string,
+	signal: AbortSignal,
+	ancestors: string[] = [],
+): Promise<ProjectScope[]> {
+	const path = resolve(configPath);
+	if (ancestors.includes(path)) throw new Error(`Circular context preload preset: ${path}`);
+	const nextAncestors = [...ancestors, path];
+	const ownFiles = config.files ?? [];
+	const ownContexts = config.contexts ?? [];
+	const inherited = await pMap(
+		config.extends ?? [],
+		async (reference) => {
+			if (PROJECT_REFERENCE_PATTERN.test(reference)) {
+				const referencePath = resolve(dirname(path), reference, "AGENTS.yml");
+				if (nextAncestors.includes(referencePath)) {
+					throw new Error(`Circular context preload preset: ${referencePath}`);
+				}
+				const referenceConfiguration = await loadReferencedProjectConfiguration(referencePath, signal);
+				const scopes = await loadConfiguration(
+					referenceConfiguration,
+					referencePath,
+					presetDirectory,
+					signal,
+					nextAncestors,
+				);
+				return { kind: "project" as const, scopes };
+			}
+			const presetPath = resolve(presetDirectory, `${reference}.yml`);
+			if (nextAncestors.includes(presetPath)) throw new Error(`Circular context preload preset: ${presetPath}`);
+			const presetConfiguration = await loadYamlConfiguration(presetPath);
+			const preset = await loadPresetConfiguration(
+				presetConfiguration,
+				presetPath,
+				presetDirectory,
+				signal,
+				nextAncestors,
+			);
+			return { kind: "preset" as const, preset };
+		},
+		{ concurrency: CONCURRENCY, signal },
+	);
+	const scopes = inherited.flatMap((result) => (result.kind === "project" ? result.scopes : []));
+	const presets = inherited.flatMap((result) => (result.kind === "preset" ? [result.preset] : []));
+	return [
+		...scopes,
+		{
+			projectRoot: dirname(path),
+			files: [...presets.flatMap((preset) => preset.files), ...ownFiles],
+			contexts: [...new Set([...presets.flatMap((preset) => preset.contexts), ...ownContexts])],
+		},
+	];
 }
 
 async function loadContextSource(
