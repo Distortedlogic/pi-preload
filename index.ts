@@ -1,20 +1,55 @@
-import { lstat, mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { dirname, posix, relative, resolve, win32 } from "node:path";
-import { fileURLToPath } from "node:url";
+import type { Stats } from "node:fs";
+import { readFile, stat, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, formatSize } from "@earendil-works/pi-coding-agent";
-import { walk } from "@secretlint/walker";
 import { fileTypeFromBuffer } from "file-type";
+import { globby, isDynamicPattern } from "globby";
 import { isBinaryFile } from "isbinaryfile";
+import nunjucks from "nunjucks";
 import pMap from "p-map";
+import { readYamlFile } from "read-yaml-file";
+import { Value } from "typebox/value";
+import { type Configuration, configurationSchema } from "./agents.ts";
 
-const CUSTOM_TYPE = "pi-preload";
+const CUSTOM_TYPE = "context-preload";
+const OWNED_SECTION_PATH = "pi-preload";
+const LOCK_FILE_GLOBS = [
+	"**/.terraform.lock.hcl",
+	"**/bun.lock",
+	"**/bun.lockb",
+	"**/Cargo.lock",
+	"**/composer.lock",
+	"**/deno.lock",
+	"**/flake.lock",
+	"**/Gemfile.lock",
+	"**/gradle.lockfile",
+	"**/mix.lock",
+	"**/npm-shrinkwrap.json",
+	"**/package-lock.json",
+	"**/Package.resolved",
+	"**/packages.lock.json",
+	"**/paket.lock",
+	"**/Pipfile.lock",
+	"**/pnpm-lock.yaml",
+	"**/Podfile.lock",
+	"**/poetry.lock",
+	"**/pubspec.lock",
+	"**/uv.lock",
+	"**/yarn.lock",
+];
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_TOTAL_BYTES = 1024 * 1024;
 const MAX_FILES = 1000;
-const DEFAULT_PRELOAD_IGNORE_FILE = fileURLToPath(new URL("./defaults/.preloadignore", import.meta.url));
+const TREE_FILE = "TREE.txt";
+const PRELOAD_FILE = "PRELOAD.md";
 const CONCURRENCY = 8;
 const DEADLINE_MS = 30_000;
+const DEFAULT_PRESET_DIRECTORY = fileURLToPath(new URL("./presets/", import.meta.url));
+const DEFAULT_CONTEXT_DIRECTORY = fileURLToPath(new URL("./context/", import.meta.url));
+const CONTEXT_FACTS_FILE = "facts.ts";
+const CONTEXT_TEMPLATE_FILE = "index.md.njk";
 type PreloadBlock = TextContent | ImageContent;
 
 function blockBytes(block: PreloadBlock) {
@@ -29,31 +64,227 @@ function serializePreloadBlocks(blocks: readonly PreloadBlock[]) {
 		.join("\n\n")}\n`;
 }
 
-export async function collectPreload(ctx: { cwd: string }, signal: AbortSignal) {
-	const { cwd } = ctx;
+type PreloadConfiguration = { files: string[]; contexts: string[] };
+type ContextFactsLoader = (input: { cwd: string; signal: AbortSignal }) => Promise<Record<string, unknown> | undefined>;
+type ContextSource = { name: string; facts: Record<string, unknown>; templatePath: string };
+
+const CONTEXT_NAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
+
+async function loadYamlConfiguration(sourcePath: string): Promise<Configuration>;
+async function loadYamlConfiguration(
+	sourcePath: string,
+	select: (document: unknown) => unknown,
+): Promise<Configuration | undefined>;
+async function loadYamlConfiguration(sourcePath: string, select?: (document: unknown) => unknown) {
+	let document: unknown;
+	try {
+		document = await readYamlFile(sourcePath);
+	} catch (error) {
+		const detail = error instanceof Error ? error.message : String(error);
+		throw new Error(`Could not parse ${sourcePath} at ${OWNED_SECTION_PATH}: ${detail}`, { cause: error });
+	}
+
+	const value = select ? select(document) : document;
+	if (select && value === undefined) return;
+	try {
+		return Value.Parse(configurationSchema, value);
+	} catch (error) {
+		const detail = error instanceof Error ? error.message : String(error);
+		throw new Error(`Invalid configuration in ${sourcePath} at ${OWNED_SECTION_PATH}: ${detail}`, { cause: error });
+	}
+}
+
+async function loadProjectConfiguration(cwd: string, signal: AbortSignal) {
+	const sourcePath = resolve(cwd, "AGENTS.yml");
 	signal.throwIfAborted();
-	const defaultIgnorePatterns = await readFile(DEFAULT_PRELOAD_IGNORE_FILE, { encoding: "utf8", signal });
-	const candidates = (
-		await walk({
-			cwd: ctx.cwd,
-			ignoreFiles: [".preloadignore"],
-			extraIgnorePatterns: defaultIgnorePatterns.split(/\r?\n/u),
-			followSymlinks: false,
-		})
-	).map((path) => ({
-		absolutePath: path,
-		path: posix.normalize(relative(cwd, path).replaceAll(win32.sep, posix.sep)),
-	}));
+	let sourceStats: Stats;
+	try {
+		sourceStats = await stat(sourcePath);
+	} catch (error) {
+		signal.throwIfAborted();
+		if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
+		throw error;
+	}
 	signal.throwIfAborted();
+	if (!sourceStats.isFile()) {
+		throw new Error(`Invalid configuration source ${sourcePath} at ${OWNED_SECTION_PATH}: expected a regular file.`);
+	}
+	if (sourceStats.size > MAX_FILE_BYTES) {
+		throw new Error(`${sourcePath} at ${OWNED_SECTION_PATH} exceeds ${formatSize(MAX_FILE_BYTES)}.`);
+	}
+
+	return loadYamlConfiguration(sourcePath, (document) =>
+		typeof document === "object" && document !== null && !Array.isArray(document)
+			? (document as Record<string, unknown>)[OWNED_SECTION_PATH]
+			: undefined,
+	);
+}
+
+function validateContextName(name: string) {
+	const segments = name.split(/[\\/]/);
+	if (
+		isAbsolute(name) ||
+		segments.length !== 1 ||
+		segments.some((segment) => segment === "." || segment === "..") ||
+		!CONTEXT_NAME_PATTERN.test(name)
+	) {
+		throw new Error(`Invalid context source name: ${JSON.stringify(name)}`);
+	}
+}
+
+async function loadConfiguration(
+	config: Configuration,
+	configPath: string,
+	presetDirectory: string,
+	signal: AbortSignal,
+	ancestors: string[] = [],
+): Promise<PreloadConfiguration> {
+	const path = resolve(configPath);
+	if (ancestors.includes(path)) throw new Error(`Circular context preload preset: ${path}`);
+	const ownFiles = config.files ?? [];
+	if (ancestors.length > 0) {
+		const relativePattern = ownFiles.find(
+			(pattern) => !isAbsolute(pattern.startsWith("!") ? pattern.slice(1) : pattern),
+		);
+		if (relativePattern) throw new Error(`Context preload preset pattern must be absolute: ${relativePattern}`);
+	}
+	const ownContexts = config.contexts ?? [];
+	const inherited = await pMap(
+		config.extends ?? [],
+		async (preset) => {
+			const presetPath = resolve(presetDirectory, `${preset}.yml`);
+			const presetAncestors = [...ancestors, path];
+			if (presetAncestors.includes(presetPath)) throw new Error(`Circular context preload preset: ${presetPath}`);
+			const presetConfiguration = await loadYamlConfiguration(presetPath);
+			return loadConfiguration(presetConfiguration, presetPath, presetDirectory, signal, presetAncestors);
+		},
+		{ concurrency: CONCURRENCY, signal },
+	);
+	return {
+		files: [...inherited.flatMap((configuration) => configuration.files), ...ownFiles],
+		contexts: [...new Set([...inherited.flatMap((configuration) => configuration.contexts), ...ownContexts])],
+	};
+}
+
+async function loadContextSource(
+	cwd: string,
+	name: string,
+	contextRoot: string,
+	signal: AbortSignal,
+): Promise<ContextSource | undefined> {
+	const factsPath = resolve(contextRoot, name, CONTEXT_FACTS_FILE);
+	const templatePath = resolve(contextRoot, name, CONTEXT_TEMPLATE_FILE);
+	signal.throwIfAborted();
+	let contextModule: { default?: unknown };
+	try {
+		contextModule = (await import(pathToFileURL(factsPath).href)) as { default?: unknown };
+	} catch (error) {
+		signal.throwIfAborted();
+		const detail = error instanceof Error ? error.message : String(error);
+		throw new Error(`Context source ${name} import failed: ${detail}`, { cause: error });
+	}
+	const loader = contextModule.default;
+	if (typeof loader !== "function") {
+		throw new Error(`Context source ${name} facts.ts default export must be a function.`);
+	}
+	signal.throwIfAborted();
+
+	let facts: Record<string, unknown> | undefined;
+	try {
+		facts = await (loader as ContextFactsLoader)({ cwd, signal });
+	} catch (error) {
+		signal.throwIfAborted();
+		const detail = error instanceof Error ? error.message : String(error);
+		throw new Error(`Context source ${name} execution failed: ${detail}`, { cause: error });
+	}
+	signal.throwIfAborted();
+	return facts === undefined ? undefined : { name, facts, templatePath };
+}
+
+async function loadContextSources(cwd: string, names: string[], contextDirectory: string, signal: AbortSignal) {
+	if (names.length === 0) return [];
+	for (const name of names) validateContextName(name);
+	const contextRoot = resolve(contextDirectory);
+	const environment = new nunjucks.Environment(new nunjucks.FileSystemLoader(contextRoot, { noCache: true }), {
+		autoescape: false,
+		throwOnUndefined: true,
+	});
+	const blocks: TextContent[] = [];
+	for (const name of names) {
+		const source = await loadContextSource(cwd, name, contextRoot, signal);
+		if (!source) continue;
+		let rendered: string;
+		signal.throwIfAborted();
+		try {
+			rendered = environment.render(source.templatePath, { facts: source.facts });
+		} catch (error) {
+			signal.throwIfAborted();
+			const detail = error instanceof Error ? error.message : String(error);
+			throw new Error(`Context source ${source.name} render failed: ${detail}`, { cause: error });
+		}
+		signal.throwIfAborted();
+		const markdown = rendered.replace(/\r\n?/g, "\n").trimEnd();
+		if (markdown.trim().length === 0) throw new Error(`Context source ${source.name} rendered empty content.`);
+		const block: TextContent = { type: "text", text: `Context: ${source.name}\n\n${markdown}\n` };
+		const bytes = blockBytes(block);
+		if (bytes > MAX_FILE_BYTES) {
+			throw new Error(
+				`Context source ${source.name} is ${formatSize(bytes)}; the block limit is ${formatSize(MAX_FILE_BYTES)}.`,
+			);
+		}
+		blocks.push(block);
+	}
+	return blocks;
+}
+
+export async function collectPreload(
+	cwd: string,
+	signal: AbortSignal,
+	presetDirectory = DEFAULT_PRESET_DIRECTORY,
+	contextDirectory = DEFAULT_CONTEXT_DIRECTORY,
+	configuration: Configuration,
+) {
+	const resolvedConfiguration = await loadConfiguration(
+		configuration,
+		resolve(cwd, "AGENTS.yml"),
+		presetDirectory,
+		signal,
+	);
+	const { files: patterns, contexts } = resolvedConfiguration;
+	const contextBlocks = await loadContextSources(cwd, contexts, contextDirectory, signal);
+	signal.throwIfAborted();
+	const includePatterns = patterns.filter((pattern) => !pattern.startsWith("!"));
+	const ignorePatterns = patterns.filter((pattern) => pattern.startsWith("!")).map((pattern) => pattern.slice(1));
+
+	const candidates =
+		includePatterns.length === 0
+			? []
+			: await globby(includePatterns, {
+					cwd,
+					gitignore: true,
+					ignore: ["AGENTS.yml", PRELOAD_FILE, TREE_FILE, ...LOCK_FILE_GLOBS, ...ignorePatterns],
+					onlyFiles: true,
+					followSymbolicLinks: false,
+					unique: true,
+					objectMode: true,
+					stats: true,
+				});
+	signal.throwIfAborted();
+
+	const explicitFilePaths = new Set(
+		includePatterns.filter((pattern) => !isDynamicPattern(pattern)).map((pattern) => resolve(cwd, pattern)),
+	);
 	const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 	const selectedFiles = await pMap(
 		candidates,
 		async (file) => {
-			const fileStats = await lstat(file.absolutePath);
-			if (!fileStats.isFile()) throw new Error(`Not a regular file: ${file.path}`);
-			const bytes = await readFile(file.absolutePath, { signal });
+			const path = resolve(cwd, file.path);
+			const bytes = await readFile(path, { signal });
 			const binary = await isBinaryFile(bytes);
-			const fileBytes = fileStats.size;
+			if (binary && !explicitFilePaths.has(path)) return;
+			if (!file.dirent.isFile()) throw new Error(`Not a regular file: ${file.path}`);
+			const fileBytes = file.stats?.size;
+			if (fileBytes === undefined) throw new Error(`Could not read file metadata: ${file.path}`);
 			if (fileBytes > MAX_FILE_BYTES) {
 				throw new Error(`${file.path} is ${formatSize(fileBytes)}; the file limit is ${formatSize(MAX_FILE_BYTES)}.`);
 			}
@@ -101,7 +332,7 @@ export async function collectPreload(ctx: { cwd: string }, signal: AbortSignal) 
 	if (selectedFileBytes > MAX_TOTAL_BYTES) {
 		throw new Error(`Selected files grew beyond ${formatSize(MAX_TOTAL_BYTES)}.`);
 	}
-	const blocks: PreloadBlock[] = files.flatMap((file) => file.blocks);
+	const blocks: PreloadBlock[] = [...contextBlocks, ...files.flatMap((file) => file.blocks)];
 
 	const preloadContextBytes = blocks.reduce((total, block) => total + blockBytes(block), 0);
 	if (preloadContextBytes > MAX_TOTAL_BYTES) {
@@ -110,9 +341,7 @@ export async function collectPreload(ctx: { cwd: string }, signal: AbortSignal) 
 
 	signal.throwIfAborted();
 	const validatedPreloadSnapshot = serializePreloadBlocks(blocks);
-	const piDirectory = resolve(cwd, ".pi");
-	await mkdir(piDirectory, { recursive: true });
-	await writeFile(resolve(piDirectory, "PRELOAD.md"), validatedPreloadSnapshot, { encoding: "utf8", signal });
+	await writeFile(resolve(cwd, PRELOAD_FILE), validatedPreloadSnapshot, { encoding: "utf8", signal });
 	return { blocks, count: files.length, bytes: selectedFileBytes };
 }
 
@@ -126,19 +355,19 @@ export default function (pi: ExtensionAPI) {
 			);
 		if (!ctx.isProjectTrusted() || hasPreload) return;
 
-		try {
-			const activationFile = await stat(resolve(ctx.cwd, ".preloadignore"));
-			if (!activationFile.isFile()) return;
-		} catch (error) {
-			if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
-			throw error;
-		}
-
 		ctx.ui.setStatus(CUSTOM_TYPE, "Preloading context...");
 
 		try {
 			const signal = AbortSignal.timeout(DEADLINE_MS);
-			const result = await collectPreload(ctx, signal);
+			const configuration = await loadProjectConfiguration(ctx.cwd, signal);
+			if (!configuration) return;
+			const result = await collectPreload(
+				ctx.cwd,
+				signal,
+				DEFAULT_PRESET_DIRECTORY,
+				DEFAULT_CONTEXT_DIRECTORY,
+				configuration,
+			);
 			if (!result) return;
 
 			pi.sendMessage({ customType: CUSTOM_TYPE, content: result.blocks, display: false }, { triggerTurn: false });

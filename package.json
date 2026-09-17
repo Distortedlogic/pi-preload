@@ -21,11 +21,12 @@
   },
   "files": [
     "index.ts",
+    "agents.ts",
     "README.md",
     "LICENSE",
-    "defaults/.preloadignore",
     "context",
-    "skills"
+    "skills",
+    "presets"
   ],
   "pi": {
     "extensions": [
@@ -37,17 +38,21 @@
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-coding-agent": ">=0.85.1 <1"
+    "@earendil-works/pi-coding-agent": ">=0.85.1 <1",
+    "typebox": "*"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.13",
     "@types/node": "^26.5.1",
+    "@types/nunjucks": "3.2.6",
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "@secretlint/walker": "13.0.5",
     "file-type": "22.1.0",
+    "globby": "16.2.4",
     "isbinaryfile": "5.0.0",
-    "p-map": "7.0.7"
+    "nunjucks": "3.2.4",
+    "p-map": "7.0.7",
+    "read-yaml-file": "3.0.0"
   }
 }
