@@ -1,0 +1,4 @@
+_commit: a2caef9
+_src_path: /home/entropybender/pi-extensions
+project_description: Preload pi chat context from AGENTS.yml file globs.
+project_name: pi-preload
