@@ -68,6 +68,7 @@ type PreloadConfiguration = { files: string[]; contexts: string[] };
 type ProjectScope = { projectRoot: string; files: string[]; contexts: string[] };
 type ContextFactsLoader = (input: { cwd: string; signal: AbortSignal }) => Promise<Record<string, unknown> | undefined>;
 type ContextSource = { name: string; facts: Record<string, unknown>; templatePath: string };
+type ContextReference = { projectRoot: string; name: string };
 
 const CONTEXT_NAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
 const PROJECT_REFERENCE_PATTERN = /^\.\.?[\\/]/;
@@ -272,17 +273,25 @@ async function loadContextSource(
 	return facts === undefined ? undefined : { name, facts, templatePath };
 }
 
-async function loadContextSources(cwd: string, names: string[], contextDirectory: string, signal: AbortSignal) {
-	if (names.length === 0) return [];
-	for (const name of names) validateContextName(name);
+async function loadContextSources(references: ContextReference[], contextDirectory: string, signal: AbortSignal) {
+	if (references.length === 0) return [];
+	const seen = new Set<string>();
+	const uniqueReferences: ContextReference[] = [];
+	for (const reference of references) {
+		validateContextName(reference.name);
+		const key = `${reference.projectRoot}\0${reference.name}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		uniqueReferences.push(reference);
+	}
 	const contextRoot = resolve(contextDirectory);
 	const environment = new nunjucks.Environment(new nunjucks.FileSystemLoader(contextRoot, { noCache: true }), {
 		autoescape: false,
 		throwOnUndefined: true,
 	});
 	const blocks: TextContent[] = [];
-	for (const name of names) {
-		const source = await loadContextSource(cwd, name, contextRoot, signal);
+	for (const { projectRoot, name } of uniqueReferences) {
+		const source = await loadContextSource(projectRoot, name, contextRoot, signal);
 		if (!source) continue;
 		let rendered: string;
 		signal.throwIfAborted();
@@ -316,8 +325,11 @@ export async function collectPreload(
 	configuration: Configuration,
 ) {
 	const scopes = await loadConfiguration(configuration, resolve(cwd, "AGENTS.yml"), presetDirectory, signal);
-	const contexts = [...new Set(scopes.flatMap((scope) => scope.contexts))];
-	const contextBlocks = await loadContextSources(cwd, contexts, contextDirectory, signal);
+	const contextBlocks = await loadContextSources(
+		scopes.flatMap((scope) => scope.contexts.map((name) => ({ projectRoot: scope.projectRoot, name }))),
+		contextDirectory,
+		signal,
+	);
 	signal.throwIfAborted();
 
 	const scopedCandidates = await pMap(
