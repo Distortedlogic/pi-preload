@@ -48,7 +48,7 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "file-type": "19.6.0",
+    "file-type": "22.1.0",
     "globby": "16.2.4",
     "isbinaryfile": "5.0.0",
     "nunjucks": "3.2.4",
