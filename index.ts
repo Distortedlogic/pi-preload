@@ -12,8 +12,6 @@ const CUSTOM_TYPE = "pi-preload";
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_TOTAL_BYTES = 1024 * 1024;
 const MAX_FILES = 1000;
-const TREE_FILE = ".pi/TREE.md";
-const PRELOAD_FILE = ".pi/PRELOAD.md";
 const DEFAULT_PRELOAD_IGNORE_FILE = fileURLToPath(new URL("./defaults/.preloadignore", import.meta.url));
 const CONCURRENCY = 8;
 const DEADLINE_MS = 30_000;
@@ -112,9 +110,9 @@ export async function collectPreload(ctx: { cwd: string }, signal: AbortSignal) 
 
 	signal.throwIfAborted();
 	const validatedPreloadSnapshot = serializePreloadBlocks(blocks);
-	const preloadPath = resolve(cwd, PRELOAD_FILE);
-	await mkdir(dirname(preloadPath), { recursive: true });
-	await writeFile(preloadPath, validatedPreloadSnapshot, { encoding: "utf8", signal });
+	const piDirectory = resolve(cwd, ".pi");
+	await mkdir(piDirectory, { recursive: true });
+	await writeFile(resolve(piDirectory, "PRELOAD.md"), validatedPreloadSnapshot, { encoding: "utf8", signal });
 	return { blocks, count: files.length, bytes: selectedFileBytes };
 }
 
