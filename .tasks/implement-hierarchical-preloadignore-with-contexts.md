@@ -6,7 +6,7 @@
 
 - [ ] Keep `agents.ts`, YAML loading, strict AGENTS section validation, `extends`, preset inheritance, explicit `contexts` selection, and future non-file preload capabilities while removing only project-level `files` globs and AGENTS-owned ignore behavior from the project schema and CWD file-selection pipeline.
 
-- [ ] Split project and preset validation so inherited presets can retain their existing absolute supplemental file sources, preserve both `presets/dioxus-rust.yml` and the external Pi documentation and source behavior of `presets/pi-extension.yml`, and retain every YAML, TypeBox, Nunjucks, mapping, or glob dependency still required by AGENTS extras, preset sources, or contexts.
+- [ ] Inventory every existing preset before changing the schema, preserve `presets/dioxus-rust.yml` and the `extends` mechanism, record the external file behavior of `presets/pi-extension.yml` as an explicit migration decision, and do not delete that behavior or introduce a second AGENTS-controlled file-selection channel until its ownership is approved.
 
 - [ ] Make `<cwd>/.preloadignore` the sole activation gate and file-selection policy while treating the `pi-preload` AGENTS section as optional extra configuration, so an absent AGENTS file or absent `pi-preload` section yields empty `extends` and `contexts` rather than disabling file preload.
 
@@ -18,9 +18,7 @@
 
 - [ ] Replace CWD project-file Globby candidates with `walk` rooted at `ctx.cwd`, load `defaults/.preloadignore` as the first rule layer, use `.preloadignore` as the root and nested project ignore filename, disable symbolic-link following, and change existing Git-aware filtering only if the meta-workspace child-repository test proves that it prevents the required traversal.
 
-- [ ] Resolve absolute supplemental files inherited through `extends` separately from CWD walker results, preserve their existing validation and ordering, merge and deduplicate both sources before content processing, and keep `.preloadignore` responsible only for files under the session CWD.
-
-- [ ] Convert CWD-admitted and preset-supplied files to stable display metadata and pass them through the existing regular-file, UTF-8 text, binary-image, deterministic ordering, concurrency, file-count, per-file byte, and total-context byte pipeline without restoring project-level AGENTS file globs.
+- [ ] Convert walker-admitted CWD files to stable display metadata and pass them through the existing regular-file, UTF-8 text, binary-image, deterministic ordering, concurrency, file-count, per-file byte, and total-context byte pipeline without restoring project-level AGENTS file globs or implementing the unresolved `pi-extension` preset migration.
 
 - [ ] Define admitted binary handling for the ignore-policy model so project rules can select supported images without weakening the existing rejection of unsupported binary content, and cover the retained behavior in the existing tests.
 
@@ -42,13 +40,13 @@
 
 ## Work Unit 5: Migrate Repository Policy, Skills, Documentation, and Tests
 
-- [ ] Remove only project-level `files` policy from this repository’s `pi-preload` AGENTS section, keep `extends` and explicit `contexts`, update fixtures for a project schema without file globs and a preset schema with absolute supplemental sources, replace the legacy authoring skill with guidance for `.preloadignore`, AGENTS extras, and preset sources, retain `dioxus-specialized`, and revise the existing signatures task so signature mode remains an AGENTS-managed extra over files admitted by `.preloadignore` or inherited presets.
+- [ ] Remove only project-level `files` policy from this repository’s `pi-preload` AGENTS section, keep `extends` and explicit `contexts`, update schemas and fixtures without deciding the recorded `pi-extension` preset migration, replace the legacy authoring skill with guidance for `.preloadignore` and AGENTS extras, retain `dioxus-specialized`, and revise the existing signatures task so signature mode remains an AGENTS-managed extra over files admitted by `.preloadignore`.
 
-- [ ] Update `README.md`, package metadata, repository examples, and integration fixtures to describe exact-root activation, packaged defaults, project override order, nested subtree rules, CWD file collection, AGENTS-managed `extends` and `contexts`, preset-provided absolute supplemental sources, meta-workspace child repositories, and `.pi/PRELOAD.md` without documenting project-level AGENTS file globs.
+- [ ] Update `README.md`, package metadata, repository examples, and integration fixtures to describe exact-root activation, packaged defaults, project override order, nested subtree rules, CWD file collection, AGENTS-managed `extends` and `contexts`, the recorded unresolved `pi-extension` preset migration, meta-workspace child repositories, and `.pi/PRELOAD.md` without documenting project-level AGENTS file globs.
 
-- [ ] Update `test/unit.test.ts` to cover missing and present root activation, optional AGENTS extras, strict project and preset schemas, `extends` merge order, absolute supplemental preset files, explicit context selection, packaged-default precedence, project overrides, nested inheritance, sibling isolation, walker file metadata, retained text and image handling, Dioxus context rendering, ordering, deduplication, and all existing byte and file-count limits.
+- [ ] Update `test/unit.test.ts` to cover missing and present root activation, optional AGENTS extras, strict `extends` and `contexts` validation, preset merge order, explicit context selection, packaged-default precedence, project overrides, nested inheritance, sibling isolation, walker file metadata, retained text and image handling, Dioxus context rendering, ordering, and all existing byte and file-count limits without encoding an outcome for the unresolved `pi-extension` preset migration.
 
-- [ ] Update `test/e2e.test.ts` to cover inactive sessions, CWD file preload with no AGENTS extras, inherited external Pi sources, direct repository activation, independent activation from `pi-tree`, a meta-workspace with nested child `.preloadignore` files, explicitly selected rendered contexts, untracked child repositories, no CWD traversal outside the session root, the exact `.pi/PRELOAD.md` snapshot, and the `pi-preload` hidden message type.
+- [ ] Update `test/e2e.test.ts` to cover inactive sessions, CWD file preload with no AGENTS extras, direct repository activation, independent activation from `pi-tree`, a meta-workspace with nested child `.preloadignore` files, explicitly selected rendered contexts, untracked child repositories, no CWD traversal outside the session root, the exact `.pi/PRELOAD.md` snapshot, and the `pi-preload` hidden message type without encoding an outcome for the unresolved `pi-extension` preset migration.
 
 ## Work Unit 6: Validate, Publish, and Activate
 
