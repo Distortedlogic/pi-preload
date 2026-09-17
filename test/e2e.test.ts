@@ -27,7 +27,7 @@ test("Pi preloads valid AGENTS.yml configuration", { timeout: 20_000 }, async (t
 		writeFile(
 			join(project, "AGENTS.yml"),
 			agentsConfiguration(
-				{ files: ["nested/**/*"] },
+				{ includes: ["nested/**/*"] },
 				{
 					"pi-modes": { review: "Review changes" },
 					"pi-prompts": { prompts: { summarize: { body: "Summarize changes" } } },
