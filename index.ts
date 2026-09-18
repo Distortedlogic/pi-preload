@@ -445,10 +445,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		const hasPreload = ctx.sessionManager
 			.buildContextEntries()
-			.some(
-				(entry) =>
-					entry.type === "message" && entry.message.role === "custom" && entry.message.customType === CUSTOM_TYPE,
-			);
+			.some((entry) => entry.type === "custom_message" && entry.customType === CUSTOM_TYPE);
 		if (!ctx.isProjectTrusted() || hasPreload) return;
 
 		ctx.ui.setStatus(CUSTOM_TYPE, "Preloading context...");
