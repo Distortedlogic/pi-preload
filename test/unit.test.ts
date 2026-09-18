@@ -356,7 +356,7 @@ test("collectPreload applies dynamic block and combined context limits", async (
 
 	await t.test("combined dynamic and file limit", async (t) => {
 		const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
-		const names = ["large-0", "large-1", "large-2", "large-3"];
+		const names = Array.from({ length: 9 }, (_, index) => `large-${index}`);
 		await Promise.all(
 			names.map((name) => writeContextSource(contextDirectory, name, { template: "x".repeat(255 * 1024) })),
 		);
@@ -472,7 +472,7 @@ test("collectPreload applies the total byte limit across project scopes", async 
 	const configuration: Configuration = { extends: ["./child"], includes: ["big-*.txt"] };
 	const writes = [writeFile(join(child, "AGENTS.yml"), JSON.stringify({ "pi-preload": { includes: ["big-*.txt"] } }))];
 	for (const directory of [parent, child]) {
-		for (const name of ["big-1.txt", "big-2.txt", "big-3.txt"]) {
+		for (const name of ["big-1.txt", "big-2.txt", "big-3.txt", "big-4.txt", "big-5.txt", "big-6.txt"]) {
 			writes.push(writeFile(join(directory, name), "x".repeat(200 * 1024)));
 		}
 	}
