@@ -46,6 +46,17 @@ pi-prompts:
 
 Use only suffixes found in the target source directory.
 
+For a Pi extension repository created from the shared Copier template, keep this baseline unless the source layout needs another narrow include:
+
+```yaml
+pi-preload:
+  presets:
+    - "pi-extension"
+  includes:
+    - "src/**/*.ts"
+    - "package.json"
+```
+
 For selected monorepo packages, prefer narrow brace globs:
 
 ```yaml
@@ -81,8 +92,8 @@ Current limits:
 
 - 1,000 files
 - 256 KiB per file
-- 1 MiB total source bytes
-- valid UTF-8 text only
+- 2 MiB total source bytes
+- valid UTF-8 text, plus supported images selected by explicit file paths
 
 Confirm that:
 
