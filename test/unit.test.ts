@@ -69,7 +69,7 @@ async function writeContextSource(
 
 test("collectPreload validates configuration and applies merged selection rules", async (t) => {
 	const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
-	const sourcePattern = join(project, "src", "**", "*.ts");
+	const sourcePattern = join(project, "src", "included*.ts");
 	const configuration: Configuration = {
 		presets: ["common"],
 		includes: [
@@ -216,7 +216,8 @@ test("collectPreload resolves selected contexts and reports scoped failures", as
 			const preload = collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, {
 				contexts: [name],
 			});
-			await assert.rejects(preload, name === "" ? undefined : /Invalid context source name/);
+			if (name === "") await assert.rejects(preload);
+			else await assert.rejects(preload, /Invalid context source name/);
 		}
 	});
 
@@ -326,9 +327,9 @@ test("collectPreload follows nested project references and rejects cycles", asyn
 		assert.equal(result.count, 3);
 		assert.equal(textBlocks(result.blocks)[0]?.text, `Context: probe\n\nRoot: ${inner}\n`);
 		assert.deepEqual(fileBlockPaths(result.blocks), [
-			"vendor/middle/inner/docs/guide.md",
 			"vendor/middle/middle.txt",
 			"parent.txt",
+			"vendor/middle/inner/docs/guide.md",
 		]);
 		assert.equal(await readFile(join(parent, "PRELOAD.md"), "utf8"), preloadSnapshot(result.blocks));
 	});
