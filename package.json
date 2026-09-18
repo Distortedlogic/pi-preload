@@ -17,7 +17,7 @@
 		"test": "npm run test:unit && npm run test:e2e",
 		"test:e2e": "node --experimental-strip-types --test test/e2e.test.ts",
 		"test:unit": "node --experimental-strip-types --test test/unit.test.ts",
-		"typecheck": "tsc"
+		"typecheck": "tsc --noEmit"
 	},
 	"files": [
 		"agents.ts",
@@ -43,9 +43,9 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.5.14",
-		"@types/node": "^26.5.1",
+		"@types/node": "^22.19.0",
 		"@types/nunjucks": "3.2.6",
-		"typescript": "^7.0.2"
+		"typescript": "~7.0.2"
 	},
 	"dependencies": {
 		"file-type": "22.1.0",
