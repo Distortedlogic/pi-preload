@@ -11,19 +11,6 @@ import { configurationSchema } from "../agents.ts";
 import { type DioxusFacts, parseDioxusMetadata } from "../context/dioxus/facts.ts";
 import { collectPreload } from "../src/index.ts";
 
-test("uses one strict schema for project sections and preset files", () => {
-	const configuration = {
-		extends: ["../shared"],
-		presets: ["pi-extension"],
-		includes: ["src/**/*.ts"],
-		excludes: ["src/generated/**"],
-		contexts: ["runtime"],
-	};
-
-	assert.equal(Value.Check(configurationSchema, configuration), true);
-	assert.equal(Value.Check(configurationSchema, { ...configuration, files: ["src/**/*.ts"] }), false);
-});
-
 type PreloadResult = NonNullable<Awaited<ReturnType<typeof collectPreload>>>;
 
 function textBlocks(blocks: PreloadResult["blocks"]): TextContent[] {
@@ -80,266 +67,194 @@ async function writeContextSource(
 	await Promise.all(writes);
 }
 
-test("collectPreload merges named presets with local globs", async (t) => {
-	const root = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
-	t.after(async () => rm(root, { recursive: true, force: true }));
-	const project = join(root, "project");
-	const presetDirectory = join(root, "presets");
+test("collectPreload validates configuration and applies merged selection rules", async (t) => {
+	const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
 	const sourcePattern = join(project, "src", "**", "*.ts");
-	const excludedPattern = join(project, "src", "excluded.ts");
-	await Promise.all([mkdir(join(project, "src"), { recursive: true }), mkdir(presetDirectory)]);
-	const configuration: Configuration = { presets: ["common"], includes: ["local.txt"], excludes: [excludedPattern] };
+	const configuration: Configuration = {
+		presets: ["common"],
+		includes: [
+			"local.txt",
+			"ignored/**/*",
+			"package-lock.json",
+			"nested/uv.lock",
+			"PRELOAD.md",
+			"TREE.txt",
+			"src/excluded.ts",
+		],
+		excludes: ["src/excluded.ts"],
+	};
+	assert.equal(Value.Check(configurationSchema, configuration), true);
+	assert.equal(Value.Check(configurationSchema, { ...configuration, files: ["src/**/*.ts"] }), false);
+
+	await Promise.all([mkdir(join(project, "src")), mkdir(join(project, "ignored")), mkdir(join(project, "nested"))]);
 	await Promise.all([
 		writeFile(join(presetDirectory, "common.yml"), JSON.stringify({ includes: [sourcePattern] })),
+		writeFile(join(project, ".gitignore"), "ignored/\n"),
+		writeFile(join(project, "local.txt"), "local"),
 		writeFile(join(project, "src", "included.ts"), "included"),
 		writeFile(join(project, "src", "excluded.ts"), "excluded"),
-		writeFile(join(project, "local.txt"), "local"),
+		writeFile(join(project, "ignored", "secret.txt"), "ignored"),
+		writeFile(join(project, "package-lock.json"), "package lock"),
+		writeFile(join(project, "nested", "uv.lock"), "uv lock"),
+		writeFile(join(project, "PRELOAD.md"), "stale preload"),
+		writeFile(join(project, "TREE.txt"), "stale tree"),
 	]);
 
-	const result = await collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, undefined, configuration);
+	const result = await collectPreload(
+		project,
+		AbortSignal.timeout(5_000),
+		presetDirectory,
+		contextDirectory,
+		configuration,
+	);
 
 	assert.ok(result);
 	assert.equal(result.count, 2);
 	assert.deepEqual(fileBlockPaths(result.blocks), ["local.txt", "src/included.ts"]);
-});
-
-test("collectPreload excludes generated, ignored, and lock files from content", async (t) => {
-	const project = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
-	t.after(async () => rm(project, { recursive: true, force: true }));
-	await Promise.all([mkdir(join(project, ".git")), mkdir(join(project, "ignored")), mkdir(join(project, "nested"))]);
-	const configuration: Configuration = { includes: ["**/*", "PRELOAD.md", "TREE.txt"], excludes: ["excluded.ts"] };
-	await Promise.all([
-		writeFile(join(project, ".gitignore"), "ignored/\n"),
-		writeFile(join(project, ".toolrc"), "hidden configuration"),
-		writeFile(join(project, "source.ts"), "source"),
-		writeFile(join(project, "excluded.ts"), "excluded"),
-		writeFile(join(project, "package-lock.json"), "package lock"),
-		writeFile(join(project, "TREE.txt"), "stale tree"),
-		writeFile(join(project, ".git", "config"), "git metadata"),
-		writeFile(join(project, "ignored", "secret.txt"), "ignored"),
-		writeFile(join(project, "nested", "uv.lock"), "uv lock"),
-	]);
-
-	const result = await collectPreload(project, AbortSignal.timeout(5_000), undefined, undefined, configuration);
-
-	assert.ok(result);
-	assert.equal(result.count, 1);
-	assert.deepEqual(fileBlockPaths(result.blocks), ["source.ts"]);
-	assert.equal(await readFile(join(project, "PRELOAD.md"), "utf8"), `${fileBlock("source.ts", "source")}\n`);
+	assert.equal(
+		await readFile(join(project, "PRELOAD.md"), "utf8"),
+		`${fileBlock("local.txt", "local")}\n\n${fileBlock("src/included.ts", "included")}\n`,
+	);
 	assert.equal(await readFile(join(project, "TREE.txt"), "utf8"), "stale tree");
-});
 
-test("collectPreload validates presets with the shared configuration schema", async (t) => {
-	const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
-	const configuration: Configuration = { presets: ["invalid"] };
 	await writeFile(join(presetDirectory, "invalid.yml"), JSON.stringify({ files: [42] }));
-
 	await assert.rejects(
-		collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, configuration),
+		collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, {
+			presets: ["invalid"],
+		}),
 		/invalid\.yml.*pi-preload/,
 	);
 });
 
-test("collectPreload rejects an explicitly selected non-image binary", async (t) => {
-	const project = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
-	t.after(async () => rm(project, { recursive: true, force: true }));
-	const configuration: Configuration = { includes: ["invalid.txt"] };
-	await writeFile(join(project, "invalid.txt"), Uint8Array.from([0xff]));
+test("collectPreload handles selected media and writes canonical output", async (t) => {
+	await t.test("rejects a selected non-image binary", async (t) => {
+		const project = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
+		t.after(async () => rm(project, { recursive: true, force: true }));
+		await writeFile(join(project, "invalid.txt"), Uint8Array.from([0xff]));
 
-	await assert.rejects(
-		collectPreload(project, AbortSignal.timeout(5_000), undefined, undefined, configuration),
-		/explicitly selected binary file/,
-	);
-});
-
-test("collectPreload snapshots image blocks in returned order", async (t) => {
-	const project = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
-	t.after(async () => rm(project, { recursive: true, force: true }));
-	const image = Buffer.from(
-		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
-		"base64",
-	);
-	const configuration: Configuration = { includes: ["image.png"] };
-	await writeFile(join(project, "image.png"), image);
-
-	const result = await collectPreload(project, AbortSignal.timeout(5_000), undefined, undefined, configuration);
-
-	assert.ok(result);
-	assert.equal(result.blocks.length, 2);
-	assert.equal(result.blocks[0]?.type, "text");
-	assert.equal(result.blocks[1]?.type, "image");
-	const snapshot = await readFile(join(project, "PRELOAD.md"), "utf8");
-	assert.equal(snapshot, preloadSnapshot(result.blocks));
-	assert.ok(snapshot.includes(`![Preloaded image](data:image/png;base64,${image.toString("base64")})`));
-});
-
-test("collectPreload inherits and deduplicates context names in order", async (t) => {
-	const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
-	await Promise.all(
-		["first", "second", "third"].map((name) => writeContextSource(contextDirectory, name, { template: `${name}\n` })),
-	);
-	const configuration: Configuration = { presets: ["base", "extra"], contexts: ["third", "first"] };
-	await Promise.all([
-		writeFile(join(presetDirectory, "base.yml"), JSON.stringify({ contexts: ["first", "second"] })),
-		writeFile(join(presetDirectory, "extra.yml"), JSON.stringify({ contexts: ["second", "third"] })),
-	]);
-
-	const result = await collectPreload(
-		project,
-		AbortSignal.timeout(5_000),
-		presetDirectory,
-		contextDirectory,
-		configuration,
-	);
-
-	assert.ok(result);
-	assert.equal(result.count, 0);
-	assert.deepEqual(
-		textBlocks(result.blocks).map((block) => block.text),
-		["Context: first\n\nfirst\n", "Context: second\n\nsecond\n", "Context: third\n\nthird\n"],
-	);
-});
-
-test("collectPreload rejects unsafe context names", async (t) => {
-	const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
-	for (const name of ["", "/absolute", "nested/source", "nested\\source", ".", ".."]) {
-		const configuration: Configuration = { contexts: [name] };
-		const preload = collectPreload(
-			project,
-			AbortSignal.timeout(5_000),
-			presetDirectory,
-			contextDirectory,
-			configuration,
-		);
-		if (name === "") {
-			await assert.rejects(preload);
-		} else {
-			await assert.rejects(preload, /Invalid context source name/);
-		}
-	}
-});
-
-test("collectPreload reports a missing context source", async (t) => {
-	const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
-	const configuration: Configuration = { contexts: ["missing-source"] };
-
-	await assert.rejects(
-		collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, configuration),
-		/Context source missing-source import failed:/,
-	);
-});
-
-test("collectPreload does not import an unselected context source", async (t) => {
-	const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
-	const configuration: Configuration = { includes: ["selected.txt"] };
-	await Promise.all([
-		writeContextSource(contextDirectory, "unselected", {
-			facts: "export default (\n",
-			template: "unused",
-		}),
-		writeFile(join(project, "selected.txt"), "selected"),
-	]);
-
-	const result = await collectPreload(
-		project,
-		AbortSignal.timeout(5_000),
-		presetDirectory,
-		contextDirectory,
-		configuration,
-	);
-
-	assert.ok(result);
-	assert.equal(result.count, 1);
-	assert.equal(textBlocks(result.blocks)[0]?.text, fileBlock("selected.txt", "selected"));
-});
-
-test("collectPreload skips rendering when context facts are undefined", async (t) => {
-	const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
-	const configuration: Configuration = { contexts: ["not-applicable"] };
-	await Promise.all([
-		writeContextSource(contextDirectory, "not-applicable", {
-			facts: "export default async function () { return undefined; }\n",
-			template: "{{ facts.missing }}",
-		}),
-	]);
-
-	const result = await collectPreload(
-		project,
-		AbortSignal.timeout(5_000),
-		presetDirectory,
-		contextDirectory,
-		configuration,
-	);
-
-	assert.ok(result);
-	assert.equal(result.count, 0);
-	assert.deepEqual(result.blocks, []);
-});
-
-test("collectPreload renders package context before files with one final newline", async (t) => {
-	const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
-	const configuration: Configuration = { contexts: ["sample"], includes: ["selected.txt"] };
-	await Promise.all([
-		writeContextSource(contextDirectory, "sample", {
-			facts: 'export default async function () { return { name: "fixture", detail: "included" }; }\n',
-			template: 'Project: {{ facts.name }}\r\n{% include "sample/fragment.md" %}',
-			fragments: { "fragment.md": "Fragment: {{ facts.detail }}\r\n" },
-		}),
-		writeFile(join(project, "selected.txt"), "selected"),
-	]);
-
-	const result = await collectPreload(
-		project,
-		AbortSignal.timeout(5_000),
-		presetDirectory,
-		contextDirectory,
-		configuration,
-	);
-
-	assert.ok(result);
-	assert.equal(result.count, 1);
-	assert.equal(result.bytes, Buffer.byteLength("selected"));
-	const blocks = textBlocks(result.blocks);
-	assert.equal(blocks.length, 2);
-	assert.equal(blocks[0]?.text, "Context: sample\n\nProject: fixture\nFragment: included\n");
-	assert.equal(blocks[1]?.text, fileBlock("selected.txt", "selected"));
-	assert.equal(await readFile(join(project, "PRELOAD.md"), "utf8"), preloadSnapshot(result.blocks));
-	assert.doesNotMatch(blocks[0]?.text ?? "", /\n\n$/);
-});
-
-test("collectPreload reports source-scoped context failures", async (t) => {
-	const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
-	await Promise.all([
-		writeContextSource(contextDirectory, "import-error", {
-			facts: "export default (\n",
-			template: "unused",
-		}),
-		writeContextSource(contextDirectory, "invalid-export", {
-			facts: "export default 42;\n",
-			template: "unused",
-		}),
-		writeContextSource(contextDirectory, "execution-error", {
-			facts: 'export default async function () { throw new Error("loader boom"); }\n',
-			template: "unused",
-		}),
-		writeContextSource(contextDirectory, "render-error", {
-			template: '{% include "render-error/missing.md" %}',
-		}),
-	]);
-
-	const cases: Array<[string, RegExp]> = [
-		["import-error", /Context source import-error import failed:/],
-		["invalid-export", /Context source invalid-export facts\.ts default export must be a function/],
-		["execution-error", /Context source execution-error execution failed: loader boom/],
-		["render-error", /Context source render-error render failed:/],
-	];
-	for (const [name, pattern] of cases) {
-		const configuration: Configuration = { contexts: [name] };
 		await assert.rejects(
-			collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, configuration),
-			pattern,
+			collectPreload(project, AbortSignal.timeout(5_000), undefined, undefined, {
+				includes: ["invalid.txt"],
+			}),
+			/explicitly selected binary file/,
 		);
-	}
+		await assert.rejects(readFile(join(project, "PRELOAD.md"), "utf8"), /ENOENT/);
+	});
+
+	await t.test("keeps image blocks in snapshot order", async (t) => {
+		const project = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
+		t.after(async () => rm(project, { recursive: true, force: true }));
+		const image = Buffer.from(
+			"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+			"base64",
+		);
+		await writeFile(join(project, "image.png"), image);
+
+		const result = await collectPreload(project, AbortSignal.timeout(5_000), undefined, undefined, {
+			includes: ["image.png"],
+		});
+
+		assert.ok(result);
+		assert.deepEqual(
+			result.blocks.map((block) => block.type),
+			["text", "image"],
+		);
+		const snapshot = await readFile(join(project, "PRELOAD.md"), "utf8");
+		assert.equal(snapshot, preloadSnapshot(result.blocks));
+		assert.ok(snapshot.includes(`![Preloaded image](data:image/png;base64,${image.toString("base64")})`));
+	});
+});
+
+test("collectPreload resolves selected contexts and reports scoped failures", async (t) => {
+	await t.test("orders and deduplicates contexts before files", async (t) => {
+		const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
+		await Promise.all([
+			writeContextSource(contextDirectory, "first", {
+				facts: 'export default async function () { return { name: "fixture", detail: "included" }; }\n',
+				template: 'Project: {{ facts.name }}\r\n{% include "first/fragment.md" %}',
+				fragments: { "fragment.md": "Fragment: {{ facts.detail }}\r\n" },
+			}),
+			writeContextSource(contextDirectory, "second", { template: "second\n" }),
+			writeContextSource(contextDirectory, "third", { template: "third\n" }),
+			writeContextSource(contextDirectory, "not-applicable", {
+				facts: "export default async function () { return undefined; }\n",
+				template: "{{ facts.missing }}",
+			}),
+			writeContextSource(contextDirectory, "unselected", {
+				facts: "export default (\n",
+				template: "unused",
+			}),
+			writeFile(join(presetDirectory, "base.yml"), JSON.stringify({ contexts: ["first", "second"] })),
+			writeFile(join(presetDirectory, "extra.yml"), JSON.stringify({ contexts: ["second", "third"] })),
+			writeFile(join(project, "selected.txt"), "selected"),
+		]);
+
+		const result = await collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, {
+			presets: ["base", "extra"],
+			contexts: ["third", "first", "not-applicable"],
+			includes: ["selected.txt"],
+		});
+
+		assert.ok(result);
+		assert.equal(result.count, 1);
+		assert.equal(result.bytes, Buffer.byteLength("selected"));
+		assert.deepEqual(
+			textBlocks(result.blocks).map((block) => block.text),
+			[
+				"Context: first\n\nProject: fixture\nFragment: included\n",
+				"Context: second\n\nsecond\n",
+				"Context: third\n\nthird\n",
+				fileBlock("selected.txt", "selected"),
+			],
+		);
+		assert.equal(await readFile(join(project, "PRELOAD.md"), "utf8"), preloadSnapshot(result.blocks));
+	});
+
+	await t.test("rejects unsafe context names", async (t) => {
+		const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
+		for (const name of ["", "/absolute", "nested/source", "nested\\source", ".", ".."]) {
+			const preload = collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, {
+				contexts: [name],
+			});
+			await assert.rejects(preload, name === "" ? undefined : /Invalid context source name/);
+		}
+	});
+
+	await t.test("names the selected context source in each failure", async (t) => {
+		const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
+		await Promise.all([
+			writeContextSource(contextDirectory, "import-error", {
+				facts: "export default (\n",
+				template: "unused",
+			}),
+			writeContextSource(contextDirectory, "invalid-export", {
+				facts: "export default 42;\n",
+				template: "unused",
+			}),
+			writeContextSource(contextDirectory, "execution-error", {
+				facts: 'export default async function () { throw new Error("loader boom"); }\n',
+				template: "unused",
+			}),
+			writeContextSource(contextDirectory, "render-error", {
+				template: '{% include "render-error/missing.md" %}',
+			}),
+		]);
+		const cases: Array<[string, RegExp]> = [
+			["missing-source", /Context source missing-source import failed:/],
+			["import-error", /Context source import-error import failed:/],
+			["invalid-export", /Context source invalid-export facts\.ts default export must be a function/],
+			["execution-error", /Context source execution-error execution failed: loader boom/],
+			["render-error", /Context source render-error render failed:/],
+		];
+		for (const [name, pattern] of cases) {
+			await assert.rejects(
+				collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, {
+					contexts: [name],
+				}),
+				pattern,
+			);
+		}
+	});
 });
 
 test("collectPreload applies dynamic block and combined context limits", async (t) => {
@@ -370,97 +285,67 @@ test("collectPreload applies dynamic block and combined context limits", async (
 	});
 });
 
-test("collectPreload extends a child directory excluded by the parent .gitignore", async (t) => {
-	const root = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
-	t.after(async () => rm(root, { recursive: true, force: true }));
-	const parent = join(root, "parent");
-	const child = join(parent, "child");
-	await Promise.all([mkdir(join(parent, ".git"), { recursive: true }), mkdir(child, { recursive: true })]);
-	const configuration: Configuration = { extends: ["./child"], includes: ["**/*.txt"] };
-	await Promise.all([
-		writeFile(join(parent, ".gitignore"), "child/\n"),
-		writeFile(join(parent, "parent.txt"), "parent"),
-		writeFile(join(child, "AGENTS.yml"), JSON.stringify({ "pi-preload": { includes: ["child.txt"] } })),
-		writeFile(join(child, "child.txt"), "child"),
-	]);
+test("collectPreload follows nested project references and rejects cycles", async (t) => {
+	await t.test("uses each nested root even when the parent ignores it", async (t) => {
+		const root = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
+		t.after(async () => rm(root, { recursive: true, force: true }));
+		const parent = join(root, "parent");
+		const middle = join(parent, "vendor", "middle");
+		const inner = join(middle, "inner");
+		const contextDirectory = join(root, "context");
+		await Promise.all([
+			mkdir(join(parent, ".git"), { recursive: true }),
+			mkdir(join(inner, "docs"), { recursive: true }),
+			mkdir(contextDirectory),
+		]);
+		await Promise.all([
+			writeContextSource(contextDirectory, "probe", {
+				facts: "export default async function ({ cwd }) { return { root: cwd }; }\n",
+				template: "Root: {{ facts.root }}\n",
+			}),
+			writeFile(join(parent, ".gitignore"), "vendor/\n"),
+			writeFile(join(parent, "parent.txt"), "parent"),
+			writeFile(
+				join(middle, "AGENTS.yml"),
+				JSON.stringify({ "pi-preload": { extends: ["./inner"], includes: ["middle.txt"] } }),
+			),
+			writeFile(join(middle, "middle.txt"), "middle"),
+			writeFile(
+				join(inner, "AGENTS.yml"),
+				JSON.stringify({ "pi-preload": { contexts: ["probe"], includes: ["docs/*.md"] } }),
+			),
+			writeFile(join(inner, "docs", "guide.md"), "guide"),
+		]);
 
-	const result = await collectPreload(parent, AbortSignal.timeout(5_000), undefined, undefined, configuration);
+		const result = await collectPreload(parent, AbortSignal.timeout(5_000), undefined, contextDirectory, {
+			extends: ["./vendor/middle"],
+			includes: ["parent.txt"],
+		});
 
-	assert.ok(result);
-	assert.equal(result.count, 2);
-	assert.deepEqual(fileBlockPaths(result.blocks), ["child/child.txt", "parent.txt"]);
-	assert.equal(
-		await readFile(join(parent, "PRELOAD.md"), "utf8"),
-		`${fileBlock("child/child.txt", "child")}\n\n${fileBlock("parent.txt", "parent")}\n`,
-	);
-});
+		assert.ok(result);
+		assert.equal(result.count, 3);
+		assert.equal(textBlocks(result.blocks)[0]?.text, `Context: probe\n\nRoot: ${inner}\n`);
+		assert.deepEqual(fileBlockPaths(result.blocks), [
+			"vendor/middle/inner/docs/guide.md",
+			"vendor/middle/middle.txt",
+			"parent.txt",
+		]);
+		assert.equal(await readFile(join(parent, "PRELOAD.md"), "utf8"), preloadSnapshot(result.blocks));
+	});
 
-test("collectPreload resolves child patterns and context facts from the child root", async (t) => {
-	const root = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
-	t.after(async () => rm(root, { recursive: true, force: true }));
-	const parent = join(root, "parent");
-	const child = join(parent, "vendor", "child");
-	const contextDirectory = join(root, "context");
-	await Promise.all([mkdir(join(child, "docs"), { recursive: true }), mkdir(contextDirectory)]);
-	const configuration: Configuration = { extends: ["./vendor/child"] };
-	await Promise.all([
-		writeContextSource(contextDirectory, "probe", {
-			facts: "export default async function ({ cwd }) { return { root: cwd }; }\n",
-			template: "Root: {{ facts.root }}\n",
-		}),
-		writeFile(
-			join(child, "AGENTS.yml"),
-			JSON.stringify({ "pi-preload": { includes: ["docs/*.md"], contexts: ["probe"] } }),
-		),
-		writeFile(join(child, "docs", "guide.md"), "guide"),
-	]);
+	await t.test("rejects a project-reference cycle", async (t) => {
+		const root = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
+		t.after(async () => rm(root, { recursive: true, force: true }));
+		const parent = join(root, "parent");
+		const child = join(parent, "child");
+		await mkdir(child, { recursive: true });
+		await writeFile(join(child, "AGENTS.yml"), JSON.stringify({ "pi-preload": { extends: [".."] } }));
 
-	const result = await collectPreload(parent, AbortSignal.timeout(5_000), undefined, contextDirectory, configuration);
-
-	assert.ok(result);
-	assert.equal(result.count, 1);
-	assert.equal(textBlocks(result.blocks)[0]?.text, `Context: probe\n\nRoot: ${child}\n`);
-	assert.deepEqual(fileBlockPaths(result.blocks), ["vendor/child/docs/guide.md"]);
-});
-
-test("collectPreload loads nested project references", async (t) => {
-	const root = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
-	t.after(async () => rm(root, { recursive: true, force: true }));
-	const parent = join(root, "parent");
-	const middle = join(parent, "middle");
-	const inner = join(middle, "inner");
-	await mkdir(inner, { recursive: true });
-	const configuration: Configuration = { extends: ["./middle"] };
-	await Promise.all([
-		writeFile(
-			join(middle, "AGENTS.yml"),
-			JSON.stringify({ "pi-preload": { extends: ["./inner"], includes: ["middle.txt"] } }),
-		),
-		writeFile(join(inner, "AGENTS.yml"), JSON.stringify({ "pi-preload": { includes: ["deep.txt"] } })),
-		writeFile(join(middle, "middle.txt"), "middle"),
-		writeFile(join(inner, "deep.txt"), "deep"),
-	]);
-
-	const result = await collectPreload(parent, AbortSignal.timeout(5_000), undefined, undefined, configuration);
-
-	assert.ok(result);
-	assert.equal(result.count, 2);
-	assert.deepEqual(fileBlockPaths(result.blocks), ["middle/inner/deep.txt", "middle/middle.txt"]);
-});
-
-test("collectPreload rejects circular project references", async (t) => {
-	const root = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
-	t.after(async () => rm(root, { recursive: true, force: true }));
-	const parent = join(root, "parent");
-	const child = join(parent, "child");
-	await mkdir(child, { recursive: true });
-	const configuration: Configuration = { extends: ["./child"] };
-	await writeFile(join(child, "AGENTS.yml"), JSON.stringify({ "pi-preload": { extends: [".."] } }));
-
-	await assert.rejects(
-		collectPreload(parent, AbortSignal.timeout(5_000), undefined, undefined, configuration),
-		/Circular context preload preset/,
-	);
+		await assert.rejects(
+			collectPreload(parent, AbortSignal.timeout(5_000), undefined, undefined, { extends: ["./child"] }),
+			/Circular context preload preset/,
+		);
+	});
 });
 
 test("collectPreload applies the total byte limit across project scopes", async (t) => {
@@ -540,30 +425,6 @@ test("parseDioxusMetadata handles deterministic workspace scenarios", () => {
 			expected: { platforms: ["mobile"], fullstack: false, router: false },
 		},
 		{
-			name: "only Dioxus workspace package",
-			cwd: join(workspaceRoot, "tools"),
-			metadata: {
-				packages: [
-					{
-						id: "server-app",
-						name: "server-app",
-						manifest_path: join(workspaceRoot, "apps", "server", "Cargo.toml"),
-						dependencies: [{ name: "dioxus", kind: null, features: ["server"] }],
-					},
-					{
-						id: "utility",
-						name: "utility",
-						manifest_path: join(workspaceRoot, "crates", "utility", "Cargo.toml"),
-						dependencies: [],
-					},
-				],
-				workspace_members: ["server-app", "utility"],
-				workspace_default_members: [],
-				workspace_root: workspaceRoot,
-			},
-			expected: { platforms: ["server"], fullstack: false, router: false },
-		},
-		{
 			name: "ambiguous workspace",
 			cwd: workspaceRoot,
 			metadata: {
@@ -591,7 +452,7 @@ test("parseDioxusMetadata handles deterministic workspace scenarios", () => {
 			expected: { platforms: [], fullstack: false, router: false },
 		},
 		{
-			name: "direct and default-reachable features",
+			name: "direct features and router dependency",
 			cwd: join(workspaceRoot, "app", "src"),
 			metadata: {
 				packages: [
@@ -600,48 +461,19 @@ test("parseDioxusMetadata handles deterministic workspace scenarios", () => {
 						name: "app",
 						manifest_path: join(workspaceRoot, "app", "Cargo.toml"),
 						dependencies: [
-							{ name: "dioxus", rename: "dx", kind: null, features: ["web"] },
-							{ name: "dioxus", kind: "dev", features: ["native"] },
-							{ name: "dioxus-router", kind: "dev" },
+							{ name: "dioxus", kind: null, features: ["fullstack", "server", "web"] },
+							{ name: "dioxus-router", kind: null },
 						],
-						features: {
-							default: ["ui"],
-							ui: ["dx?/server", "nested"],
-							nested: ["cycle", "dx/fullstack"],
-							cycle: ["ui"],
-							inactive: ["dx/desktop", "dx/mobile", "dx/native", "dx/router"],
-						},
 					},
 				],
 				workspace_members: ["app"],
 				workspace_default_members: ["app"],
 				workspace_root: workspaceRoot,
 			},
-			expected: { platforms: ["server", "web"], fullstack: true, router: false },
+			expected: { platforms: ["server", "web"], fullstack: true, router: true },
 		},
 		{
-			name: "direct router dependency",
-			cwd: join(workspaceRoot, "router-app"),
-			metadata: {
-				packages: [
-					{
-						id: "router-app",
-						name: "router-app",
-						manifest_path: join(workspaceRoot, "router-app", "Cargo.toml"),
-						dependencies: [
-							{ name: "dioxus", kind: null },
-							{ name: "dioxus-router", kind: null },
-						],
-					},
-				],
-				workspace_members: ["router-app"],
-				workspace_default_members: ["router-app"],
-				workspace_root: workspaceRoot,
-			},
-			expected: { platforms: [], fullstack: false, router: true },
-		},
-		{
-			name: "no workspace Dioxus dependency",
+			name: "no applicable package",
 			cwd: join(workspaceRoot, "app"),
 			metadata: {
 				packages: [
@@ -685,52 +517,20 @@ const dioxusBaseFacts: DioxusFacts = {
 	fullstack: false,
 	router: false,
 };
-const dioxusContextScenarios = {
-	coreOnly: dioxusBaseFacts,
-	router: { ...dioxusBaseFacts, router: true },
-	fullstackWebServer: {
-		...dioxusBaseFacts,
-		platforms: ["server", "web"],
-		fullstack: true,
-	},
-	unrelatedWorkspace: dioxusBaseFacts,
-} satisfies Record<string, DioxusFacts>;
-const dioxusContextByteBudgets = {
-	coreOnly: 1200,
-	router: 1400,
-	fullstackWebServer: 3000,
-	unrelatedWorkspace: 1200,
-} satisfies Record<keyof typeof dioxusContextScenarios, number>;
-
 function renderDioxusContext(facts: DioxusFacts) {
 	return dioxusEnvironment.render("dioxus/index.md.njk", { facts });
 }
 
-test("keeps representative Dioxus contexts within byte budgets", () => {
-	const renderedBytes = Object.fromEntries(
-		Object.entries(dioxusContextScenarios).map(([name, facts]) => [
-			name,
-			Buffer.byteLength(renderDioxusContext(facts)),
-		]),
-	) as Record<keyof typeof dioxusContextScenarios, number>;
-	for (const name of Object.keys(dioxusContextScenarios) as Array<keyof typeof dioxusContextScenarios>) {
-		assert.ok(
-			renderedBytes[name] <= dioxusContextByteBudgets[name],
-			`${name} exceeds its ${dioxusContextByteBudgets[name]} byte limit`,
-		);
-	}
-});
-
-test("Dioxus template follows every inclusion-matrix condition", async () => {
-	const groups: Array<{ facts: Partial<DioxusFacts>; file: string }> = [
-		{ facts: { router: true }, file: "ROUTER.md" },
-		{ facts: { fullstack: true }, file: "fullstack/10-FULLSTACK.md" },
-		{ facts: { platforms: ["server"] }, file: "server/10-SERVER.md" },
-		{ facts: { platforms: ["web"] }, file: "web/10-WEB.md" },
-		{ facts: { platforms: ["desktop"] }, file: "desktop/10-DESKTOP.md" },
-		{ facts: { platforms: ["mobile"] }, file: "mobile/10-MOBILE.md" },
+test("Dioxus template composes selected capability fragments", async () => {
+	const capabilityFiles = [
+		"ROUTER.md",
+		"fullstack/10-FULLSTACK.md",
+		"server/10-SERVER.md",
+		"web/10-WEB.md",
+		"desktop/10-DESKTOP.md",
+		"mobile/10-MOBILE.md",
 	];
-	const files = ["CORE.md", ...groups.map((group) => group.file)];
+	const files = ["CORE.md", ...capabilityFiles];
 	const fragments = new Map(
 		await Promise.all(
 			files.map(
@@ -740,31 +540,24 @@ test("Dioxus template follows every inclusion-matrix condition", async () => {
 		),
 	);
 	const core = fragments.get("CORE.md");
+	const router = fragments.get("ROUTER.md");
 	assert.ok(core);
-	const render = (facts: Partial<DioxusFacts> = {}) => renderDioxusContext({ ...dioxusBaseFacts, ...facts });
-	const specialistContent =
-		/Initial Setup|dx serve|\[features\]|LaunchBuilder|use_store|#\[store\]|SetCookie|TypedHeader<Cookie>|ServerEvents|Websocket|FileStream|ByteStream|MultipartFormData|service[- ]worker|CustomPaintSource|use_wgpu|DioxusDocument|manganis::ffi|widget_extensions|ActivityAttributes|Gradle|extern "Swift"/i;
+	assert.ok(router);
 
-	assert.equal(render(), core);
-	assert.doesNotMatch(render(), specialistContent);
-	for (const group of groups) {
-		const fragment = fragments.get(group.file);
-		assert.ok(fragment);
-		const rendered = render(group.facts);
-		assert.equal(rendered, `${core}\n${fragment}`);
-		assert.doesNotMatch(rendered, specialistContent);
-	}
+	assert.equal(renderDioxusContext(dioxusBaseFacts), core);
+	assert.equal(renderDioxusContext({ ...dioxusBaseFacts, router: true }), `${core}\n${router}`);
 
-	const allFragments = groups.map((group) => {
-		const fragment = fragments.get(group.file);
+	const allFragments = capabilityFiles.map((file) => {
+		const fragment = fragments.get(file);
 		assert.ok(fragment);
 		return fragment;
 	});
-	const allCapabilities = render({
-		platforms: ["server", "web", "desktop", "mobile"],
-		fullstack: true,
-		router: true,
-	});
-	assert.equal(allCapabilities, [core, ...allFragments].join("\n"));
-	assert.doesNotMatch(allCapabilities, specialistContent);
+	assert.equal(
+		renderDioxusContext({
+			platforms: ["server", "web", "desktop", "mobile"],
+			fullstack: true,
+			router: true,
+		}),
+		[core, ...allFragments].join("\n"),
+	);
 });

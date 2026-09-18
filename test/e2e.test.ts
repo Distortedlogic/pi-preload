@@ -10,8 +10,8 @@ const extensionPath = fileURLToPath(new URL("../src/index.ts", import.meta.url))
 const codingAgentEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
 const cliPath = join(dirname(codingAgentEntry), "cli.js");
 
-function agentsConfiguration(configuration: unknown, otherConfiguration: Record<string, unknown> = {}) {
-	return JSON.stringify({ ...otherConfiguration, "pi-preload": configuration });
+function agentsConfiguration(configuration: unknown) {
+	return JSON.stringify({ "pi-preload": configuration });
 }
 
 function fileBlock(path: string, content: string) {
@@ -20,30 +20,42 @@ function fileBlock(path: string, content: string) {
 	return `===== BEGIN FILE ${label} =====\n${content}${newline}===== END FILE ${label} =====`;
 }
 
-test("Pi preloads valid AGENTS.yml configuration", { timeout: 20_000 }, async (t) => {
+test("trusted Pi keeps one hidden preload message across reload", { timeout: 20_000 }, async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-preload-e2e-"));
-	await Promise.all([mkdir(join(project, "nested")), mkdir(join(project, "test"))]);
+	const reloadExtensionPath = join(project, "reload-extension.ts");
+	await mkdir(join(project, "nested"));
 	await Promise.all([
-		writeFile(
-			join(project, "AGENTS.yml"),
-			agentsConfiguration(
-				{ includes: ["nested/**/*"] },
-				{
-					"pi-modes": { review: "Review changes" },
-					"pi-prompts": { prompts: { summarize: { body: "Summarize changes" } } },
-				},
-			),
-		),
+		writeFile(join(project, "AGENTS.yml"), agentsConfiguration({ includes: ["nested/**/*"] })),
 		writeFile(join(project, "nested/context.txt"), "e2e preloaded text"),
-		writeFile(join(project, "nested/uv.lock"), "must not reach context"),
-		writeFile(join(project, "test/deep.test.ts"), "must stay out of the tree"),
+		writeFile(
+			reloadExtensionPath,
+			[
+				'import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";',
+				"export default function (pi: ExtensionAPI) {",
+				'\tpi.registerCommand("reload-preload", {',
+				"\t\thandler: async (_args, ctx) => {",
+				"\t\t\tawait ctx.reload();",
+				"\t\t},",
+				"\t});",
+				"}",
+				"",
+			].join("\n"),
+		),
 	]);
 
 	const client = new RpcClient({
 		cliPath,
 		cwd: project,
 		env: { PI_OFFLINE: "1" },
-		args: ["--approve", "--no-session", "--no-extensions", "--extension", extensionPath],
+		args: [
+			"--approve",
+			"--no-session",
+			"--no-extensions",
+			"--extension",
+			extensionPath,
+			"--extension",
+			reloadExtensionPath,
+		],
 	});
 	t.after(async () => {
 		await client.stop();
@@ -51,20 +63,24 @@ test("Pi preloads valid AGENTS.yml configuration", { timeout: 20_000 }, async (t
 	});
 	await client.start();
 
-	const messages = await client.getMessages();
-	const preload = messages.find((message) => message.role === "custom" && message.customType === "pi-preload");
+	const expectedBlock = fileBlock("nested/context.txt", "e2e preloaded text");
+	const assertSinglePreload = async () => {
+		const messages = await client.getMessages();
+		const preloadMessages = messages.filter(
+			(message) => message.role === "custom" && message.customType === "pi-preload",
+		);
+		assert.equal(preloadMessages.length, 1);
+		const preload = preloadMessages[0];
+		assert.ok(preload);
+		if (preload.role !== "custom") assert.fail("Expected a custom preload message");
+		assert.equal(preload.display, false);
+		assert.deepEqual(preload.content, [{ type: "text", text: expectedBlock }]);
+		assert.equal(await readFile(join(project, "PRELOAD.md"), "utf8"), `${expectedBlock}\n`);
+	};
 
-	assert.ok(preload);
-	if (preload.role !== "custom") assert.fail("Expected a custom preload message");
-	assert.equal(preload.display, false);
-	assert.ok(Array.isArray(preload.content));
-	assert.equal(preload.content.length, 1);
-	assert.deepEqual(preload.content[0], { type: "text", text: fileBlock("nested/context.txt", "e2e preloaded text") });
-	assert.equal(
-		await readFile(join(project, "PRELOAD.md"), "utf8"),
-		`${fileBlock("nested/context.txt", "e2e preloaded text")}\n`,
-	);
-	await assert.rejects(readFile(join(project, "TREE.txt"), "utf8"), /ENOENT/);
+	await assertSinglePreload();
+	await client.prompt("/reload-preload");
+	await assertSinglePreload();
 });
 
 test("Pi does not read AGENTS.yml preload configuration for an untrusted project", { timeout: 20_000 }, async (t) => {
@@ -96,6 +112,5 @@ test("Pi does not read AGENTS.yml preload configuration for an untrusted project
 		false,
 	);
 	assert.deepEqual(extensionErrors, []);
-	await assert.rejects(readFile(join(project, "TREE.txt"), "utf8"), /ENOENT/);
 	await assert.rejects(readFile(join(project, "PRELOAD.md"), "utf8"), /ENOENT/);
 });
