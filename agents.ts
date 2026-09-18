@@ -1,14 +1,14 @@
 import { type Static, Type } from "typebox";
 
-const GLOB_LIST = Type.Array(Type.String({ minLength: 1 }));
+const STRING_LIST_SCHEMA = Type.Array(Type.String({ minLength: 1 }));
 
 export const configurationSchema = Type.Object(
 	{
-		extends: Type.Optional(GLOB_LIST),
-		presets: Type.Optional(GLOB_LIST),
-		includes: Type.Optional(GLOB_LIST),
-		excludes: Type.Optional(GLOB_LIST),
-		contexts: Type.Optional(GLOB_LIST),
+		extends: Type.Optional(STRING_LIST_SCHEMA),
+		presets: Type.Optional(STRING_LIST_SCHEMA),
+		includes: Type.Optional(STRING_LIST_SCHEMA),
+		excludes: Type.Optional(STRING_LIST_SCHEMA),
+		contexts: Type.Optional(STRING_LIST_SCHEMA),
 	},
 	{ additionalProperties: false },
 );

@@ -6,7 +6,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { RpcClient } from "@earendil-works/pi-coding-agent";
 
-const extensionPath = fileURLToPath(new URL("../index.ts", import.meta.url));
+const extensionPath = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 const codingAgentEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
 const cliPath = join(dirname(codingAgentEntry), "cli.js");
 

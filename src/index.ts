@@ -11,7 +11,7 @@ import nunjucks from "nunjucks";
 import pMap from "p-map";
 import { readYamlFile } from "read-yaml-file";
 import { Value } from "typebox/value";
-import { type Configuration, configurationSchema } from "./agents.ts";
+import { type Configuration, configurationSchema } from "../agents.ts";
 
 const CUSTOM_TYPE = "pi-preload";
 const OWNED_SECTION_PATH = "pi-preload";
@@ -46,8 +46,8 @@ const TREE_FILE = "TREE.txt";
 const PRELOAD_FILE = "PRELOAD.md";
 const CONCURRENCY = 8;
 const DEADLINE_MS = 30_000;
-const DEFAULT_PRESET_DIRECTORY = fileURLToPath(new URL("./presets/", import.meta.url));
-const DEFAULT_CONTEXT_DIRECTORY = fileURLToPath(new URL("./context/", import.meta.url));
+const DEFAULT_PRESET_DIRECTORY = fileURLToPath(new URL("../presets/", import.meta.url));
+const DEFAULT_CONTEXT_DIRECTORY = fileURLToPath(new URL("../context/", import.meta.url));
 const CONTEXT_FACTS_FILE = "facts.ts";
 const CONTEXT_TEMPLATE_FILE = "index.md.njk";
 type PreloadBlock = TextContent | ImageContent;
@@ -461,8 +461,6 @@ export default function (pi: ExtensionAPI) {
 				DEFAULT_CONTEXT_DIRECTORY,
 				configuration,
 			);
-			if (!result) return;
-
 			pi.sendMessage({ customType: CUSTOM_TYPE, content: result.blocks, display: false }, { triggerTurn: false });
 			ctx.ui.notify(`Context preloaded: ${result.count} files — ${formatSize(result.bytes)}`, "info");
 		} finally {

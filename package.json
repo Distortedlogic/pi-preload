@@ -20,8 +20,8 @@
 		"typecheck": "tsc"
 	},
 	"files": [
-		"index.ts",
 		"agents.ts",
+		"src",
 		"README.md",
 		"LICENSE",
 		"context",
@@ -30,7 +30,7 @@
 	],
 	"pi": {
 		"extensions": [
-			"./index.ts"
+			"./src/index.ts"
 		],
 		"skills": [
 			"./skills"

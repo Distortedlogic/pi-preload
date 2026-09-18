@@ -5,9 +5,24 @@ import { dirname, join } from "node:path";
 import test, { type TestContext } from "node:test";
 import type { TextContent } from "@earendil-works/pi-ai";
 import nunjucks from "nunjucks";
+import { Value } from "typebox/value";
 import type { Configuration } from "../agents.ts";
+import { configurationSchema } from "../agents.ts";
 import { type DioxusFacts, parseDioxusMetadata } from "../context/dioxus/facts.ts";
-import { collectPreload } from "../index.ts";
+import { collectPreload } from "../src/index.ts";
+
+test("uses one strict schema for project sections and preset files", () => {
+	const configuration = {
+		extends: ["../shared"],
+		presets: ["pi-extension"],
+		includes: ["src/**/*.ts"],
+		excludes: ["src/generated/**"],
+		contexts: ["runtime"],
+	};
+
+	assert.equal(Value.Check(configurationSchema, configuration), true);
+	assert.equal(Value.Check(configurationSchema, { ...configuration, files: ["src/**/*.ts"] }), false);
+});
 
 type PreloadResult = NonNullable<Awaited<ReturnType<typeof collectPreload>>>;
 
