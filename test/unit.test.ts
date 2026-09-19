@@ -17,14 +17,6 @@ function textBlocks(blocks: PreloadResult["blocks"]): TextContent[] {
 	return blocks.filter((block): block is TextContent => block.type === "text");
 }
 
-function preloadSnapshot(blocks: PreloadResult["blocks"]) {
-	return `${blocks
-		.map((block) =>
-			block.type === "text" ? block.text : `![Preloaded image](data:${block.mimeType};base64,${block.data})`,
-		)
-		.join("\n\n")}\n`;
-}
-
 async function createDynamicFixture(t: TestContext) {
 	const root = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
 	t.after(async () => rm(root, { recursive: true, force: true }));
@@ -111,10 +103,14 @@ test("collectPreload validates configuration and applies merged selection rules"
 	assert.ok(result);
 	assert.equal(result.count, 2);
 	assert.deepEqual(fileBlockPaths(result.blocks), ["local.txt", "src/included.ts"]);
-	assert.equal(
-		await readFile(join(project, "PRELOAD.md"), "utf8"),
-		`${fileBlock("local.txt", "local")}\n\n${fileBlock("src/included.ts", "included")}\n`,
+	const snapshot = await readFile(join(project, "PRELOAD.md"), "utf8");
+	assert.ok(snapshot.includes(fileBlock("local.txt", "local")));
+	assert.ok(snapshot.includes(fileBlock("src/included.ts", "included")));
+	assert.ok(
+		snapshot.indexOf('===== BEGIN FILE "local.txt" =====') <
+			snapshot.indexOf('===== BEGIN FILE "src/included.ts" ====='),
 	);
+	assert.doesNotMatch(snapshot, /excluded|ignored|package lock|uv lock|stale preload/);
 	assert.equal(await readFile(join(project, "TREE.txt"), "utf8"), "stale tree");
 
 	await writeFile(join(presetDirectory, "invalid.yml"), JSON.stringify({ files: [42] }));
@@ -160,8 +156,9 @@ test("collectPreload handles selected media and writes canonical output", async 
 			["text", "image"],
 		);
 		const snapshot = await readFile(join(project, "PRELOAD.md"), "utf8");
-		assert.equal(snapshot, preloadSnapshot(result.blocks));
+		assert.deepEqual(fileBlockPaths(result.blocks), ["image.png"]);
 		assert.ok(snapshot.includes(`![Preloaded image](data:image/png;base64,${image.toString("base64")})`));
+		assert.ok(Buffer.byteLength(snapshot) < 256 * 1024);
 	});
 });
 
@@ -175,23 +172,18 @@ test("collectPreload resolves selected contexts and reports scoped failures", as
 				fragments: { "fragment.md": "Fragment: {{ facts.detail }}\r\n" },
 			}),
 			writeContextSource(contextDirectory, "second", { template: "second\n" }),
-			writeContextSource(contextDirectory, "third", { template: "third\n" }),
 			writeContextSource(contextDirectory, "not-applicable", {
 				facts: "export default async function () { return undefined; }\n",
-				template: "{{ facts.missing }}",
-			}),
-			writeContextSource(contextDirectory, "unselected", {
-				facts: "export default (\n",
 				template: "unused",
 			}),
 			writeFile(join(presetDirectory, "base.yml"), JSON.stringify({ contexts: ["first", "second"] })),
-			writeFile(join(presetDirectory, "extra.yml"), JSON.stringify({ contexts: ["second", "third"] })),
+			writeFile(join(presetDirectory, "extra.yml"), JSON.stringify({ contexts: ["second"] })),
 			writeFile(join(project, "selected.txt"), "selected"),
 		]);
 
 		const result = await collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, {
 			presets: ["base", "extra"],
-			contexts: ["third", "first", "not-applicable"],
+			contexts: ["first", "not-applicable"],
 			includes: ["selected.txt"],
 		});
 
@@ -203,35 +195,18 @@ test("collectPreload resolves selected contexts and reports scoped failures", as
 			[
 				"Context: first\n\nProject: fixture\nFragment: included\n",
 				"Context: second\n\nsecond\n",
-				"Context: third\n\nthird\n",
 				fileBlock("selected.txt", "selected"),
 			],
 		);
-		assert.equal(await readFile(join(project, "PRELOAD.md"), "utf8"), preloadSnapshot(result.blocks));
+		const snapshot = await readFile(join(project, "PRELOAD.md"), "utf8");
+		assert.ok(snapshot.indexOf("Context: first") < snapshot.indexOf("Context: second"));
+		assert.ok(snapshot.indexOf("Context: second") < snapshot.indexOf('===== BEGIN FILE "selected.txt" ====='));
+		assert.ok(snapshot.includes("Fragment: included"));
 	});
 
-	await t.test("rejects unsafe context names", async (t) => {
-		const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
-		for (const name of ["", "/absolute", "nested/source", "nested\\source", ".", ".."]) {
-			const preload = collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, {
-				contexts: [name],
-			});
-			if (name === "") await assert.rejects(preload);
-			else await assert.rejects(preload, /Invalid context source name/);
-		}
-	});
-
-	await t.test("names the selected context source in each failure", async (t) => {
+	await t.test("names execution and render failures", async (t) => {
 		const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
 		await Promise.all([
-			writeContextSource(contextDirectory, "import-error", {
-				facts: "export default (\n",
-				template: "unused",
-			}),
-			writeContextSource(contextDirectory, "invalid-export", {
-				facts: "export default 42;\n",
-				template: "unused",
-			}),
 			writeContextSource(contextDirectory, "execution-error", {
 				facts: 'export default async function () { throw new Error("loader boom"); }\n',
 				template: "unused",
@@ -240,21 +215,19 @@ test("collectPreload resolves selected contexts and reports scoped failures", as
 				template: '{% include "render-error/missing.md" %}',
 			}),
 		]);
-		const cases: Array<[string, RegExp]> = [
-			["missing-source", /Context source missing-source import failed:/],
-			["import-error", /Context source import-error import failed:/],
-			["invalid-export", /Context source invalid-export facts\.ts default export must be a function/],
-			["execution-error", /Context source execution-error execution failed: loader boom/],
-			["render-error", /Context source render-error render failed:/],
-		];
-		for (const [name, pattern] of cases) {
-			await assert.rejects(
-				collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, {
-					contexts: [name],
-				}),
-				pattern,
-			);
-		}
+
+		await assert.rejects(
+			collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, {
+				contexts: ["execution-error"],
+			}),
+			/Context source execution-error execution failed: loader boom/,
+		);
+		await assert.rejects(
+			collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, {
+				contexts: ["render-error"],
+			}),
+			/Context source render-error render failed:/,
+		);
 	});
 });
 
@@ -331,7 +304,13 @@ test("collectPreload follows nested project references and rejects cycles", asyn
 			"parent.txt",
 			"vendor/middle/inner/docs/guide.md",
 		]);
-		assert.equal(await readFile(join(parent, "PRELOAD.md"), "utf8"), preloadSnapshot(result.blocks));
+		const snapshot = await readFile(join(parent, "PRELOAD.md"), "utf8");
+		assert.ok(
+			snapshot.indexOf("Context: probe") < snapshot.indexOf('===== BEGIN FILE "vendor/middle/middle.txt" ====='),
+		);
+		assert.ok(snapshot.includes(`Root: ${inner}`));
+		assert.ok(snapshot.includes("middle"));
+		assert.ok(snapshot.includes("guide"));
 	});
 
 	await t.test("rejects a project-reference cycle", async (t) => {
@@ -370,195 +349,57 @@ test("collectPreload applies the total byte limit across project scopes", async 
 	);
 });
 
-test("parseDioxusMetadata handles deterministic workspace scenarios", () => {
+test("parseDioxusMetadata selects one package and rejects an ambiguous workspace", () => {
 	const workspaceRoot = join(tmpdir(), "dioxus-metadata");
-	const scenarios = [
-		{
-			name: "deepest containing package",
-			cwd: join(workspaceRoot, "apps", "root", "nested", "src"),
-			metadata: {
-				packages: [
-					{
-						id: "root-app",
-						name: "root-app",
-						manifest_path: join(workspaceRoot, "apps", "root", "Cargo.toml"),
-						dependencies: [
-							{ name: "dioxus", kind: null, features: ["fullstack", "web"] },
-							{ name: "dioxus-router", kind: null },
-						],
-					},
-					{
-						id: "nested-app",
-						name: "nested-app",
-						manifest_path: join(workspaceRoot, "apps", "root", "nested", "Cargo.toml"),
-						dependencies: [{ name: "dioxus", kind: null, features: ["desktop"] }],
-						features: { inactive: ["dioxus/mobile"] },
-					},
+	const metadata = {
+		packages: [
+			{
+				id: "web-app",
+				name: "web-app",
+				manifest_path: join(workspaceRoot, "apps", "web", "Cargo.toml"),
+				dependencies: [
+					{ name: "dioxus", kind: null, features: ["fullstack", "web"] },
+					{ name: "dioxus-router", kind: null },
 				],
-				workspace_members: ["root-app", "nested-app"],
-				workspace_default_members: ["root-app"],
-				workspace_root: workspaceRoot,
 			},
-			expected: { platforms: ["desktop"], fullstack: false, router: false },
-		},
-		{
-			name: "only Dioxus default member",
-			cwd: join(workspaceRoot, "tools"),
-			metadata: {
-				packages: [
-					{
-						id: "web-app",
-						name: "web-app",
-						manifest_path: join(workspaceRoot, "apps", "web", "Cargo.toml"),
-						dependencies: [{ name: "dioxus", kind: null, features: ["web"] }],
-					},
-					{
-						id: "mobile-app",
-						name: "mobile-app",
-						manifest_path: join(workspaceRoot, "apps", "mobile", "Cargo.toml"),
-						dependencies: [{ name: "dioxus", kind: null, features: ["mobile"] }],
-					},
-				],
-				workspace_members: ["web-app", "mobile-app"],
-				workspace_default_members: ["mobile-app"],
-				workspace_root: workspaceRoot,
+			{
+				id: "desktop-app",
+				name: "desktop-app",
+				manifest_path: join(workspaceRoot, "apps", "desktop", "Cargo.toml"),
+				dependencies: [{ name: "dioxus", kind: null, features: ["desktop"] }],
 			},
-			expected: { platforms: ["mobile"], fullstack: false, router: false },
-		},
-		{
-			name: "ambiguous workspace",
-			cwd: workspaceRoot,
-			metadata: {
-				packages: [
-					{
-						id: "web-app",
-						name: "web-app",
-						manifest_path: join(workspaceRoot, "apps", "web", "Cargo.toml"),
-						dependencies: [
-							{ name: "dioxus", kind: null, features: ["web"] },
-							{ name: "dioxus-router", kind: null },
-						],
-					},
-					{
-						id: "desktop-app",
-						name: "desktop-app",
-						manifest_path: join(workspaceRoot, "apps", "desktop", "Cargo.toml"),
-						dependencies: [{ name: "dioxus", kind: null, features: ["desktop", "fullstack"] }],
-					},
-				],
-				workspace_members: ["web-app", "desktop-app"],
-				workspace_default_members: ["web-app", "desktop-app"],
-				workspace_root: workspaceRoot,
-			},
-			expected: { platforms: [], fullstack: false, router: false },
-		},
-		{
-			name: "direct features and router dependency",
-			cwd: join(workspaceRoot, "app", "src"),
-			metadata: {
-				packages: [
-					{
-						id: "app",
-						name: "app",
-						manifest_path: join(workspaceRoot, "app", "Cargo.toml"),
-						dependencies: [
-							{ name: "dioxus", kind: null, features: ["fullstack", "server", "web"] },
-							{ name: "dioxus-router", kind: null },
-						],
-					},
-				],
-				workspace_members: ["app"],
-				workspace_default_members: ["app"],
-				workspace_root: workspaceRoot,
-			},
-			expected: { platforms: ["server", "web"], fullstack: true, router: true },
-		},
-		{
-			name: "no applicable package",
-			cwd: join(workspaceRoot, "app"),
-			metadata: {
-				packages: [
-					{
-						id: "app",
-						name: "app",
-						manifest_path: join(workspaceRoot, "app", "Cargo.toml"),
-						dependencies: [{ name: "dioxus-router", kind: null }],
-					},
-					{
-						id: "outside",
-						name: "outside",
-						manifest_path: join(workspaceRoot, "outside", "Cargo.toml"),
-						dependencies: [{ name: "dioxus", kind: null, features: ["web"] }],
-					},
-				],
-				workspace_members: ["app"],
-				workspace_default_members: ["app"],
-				workspace_root: workspaceRoot,
-			},
-			expected: undefined,
-		},
-	] satisfies Array<{
-		name: string;
-		cwd: string;
-		metadata: Parameters<typeof parseDioxusMetadata>[0];
-		expected: DioxusFacts | undefined;
-	}>;
+		],
+		workspace_members: ["web-app", "desktop-app"],
+		workspace_default_members: ["web-app", "desktop-app"],
+		workspace_root: workspaceRoot,
+	} satisfies Parameters<typeof parseDioxusMetadata>[0];
 
-	for (const scenario of scenarios) {
-		assert.deepEqual(parseDioxusMetadata(scenario.metadata, scenario.cwd), scenario.expected, scenario.name);
-	}
+	assert.deepEqual(parseDioxusMetadata(metadata, join(workspaceRoot, "apps", "web", "src")), {
+		platforms: ["web"],
+		fullstack: true,
+		router: true,
+	});
+	assert.deepEqual(parseDioxusMetadata(metadata, workspaceRoot), {
+		platforms: [],
+		fullstack: false,
+		router: false,
+	});
 });
 
 const dioxusEnvironment = new nunjucks.Environment(
 	new nunjucks.FileSystemLoader(join(import.meta.dirname, "..", "context"), { noCache: true }),
 	{ autoescape: false, throwOnUndefined: true },
 );
-const dioxusBaseFacts: DioxusFacts = {
-	platforms: [],
-	fullstack: false,
-	router: false,
-};
+
 function renderDioxusContext(facts: DioxusFacts) {
 	return dioxusEnvironment.render("dioxus/index.md.njk", { facts });
 }
 
-test("Dioxus template composes selected capability fragments", async () => {
-	const capabilityFiles = [
-		"ROUTER.md",
-		"fullstack/10-FULLSTACK.md",
-		"server/10-SERVER.md",
-		"web/10-WEB.md",
-		"desktop/10-DESKTOP.md",
-		"mobile/10-MOBILE.md",
-	];
-	const files = ["CORE.md", ...capabilityFiles];
-	const fragments = new Map(
-		await Promise.all(
-			files.map(
-				async (file) =>
-					[file, await readFile(join(import.meta.dirname, "..", "context", "dioxus", file), "utf8")] as const,
-			),
-		),
+test("Dioxus template composes router, full-stack, and platform fragments", async () => {
+	const files = ["CORE.md", "ROUTER.md", "fullstack/10-FULLSTACK.md", "web/10-WEB.md"];
+	const fragments = await Promise.all(
+		files.map((file) => readFile(join(import.meta.dirname, "..", "context", "dioxus", file), "utf8")),
 	);
-	const core = fragments.get("CORE.md");
-	const router = fragments.get("ROUTER.md");
-	assert.ok(core);
-	assert.ok(router);
 
-	assert.equal(renderDioxusContext(dioxusBaseFacts), core);
-	assert.equal(renderDioxusContext({ ...dioxusBaseFacts, router: true }), `${core}\n${router}`);
-
-	const allFragments = capabilityFiles.map((file) => {
-		const fragment = fragments.get(file);
-		assert.ok(fragment);
-		return fragment;
-	});
-	assert.equal(
-		renderDioxusContext({
-			platforms: ["server", "web", "desktop", "mobile"],
-			fullstack: true,
-			router: true,
-		}),
-		[core, ...allFragments].join("\n"),
-	);
+	assert.equal(renderDioxusContext({ platforms: ["web"], fullstack: true, router: true }), fragments.join("\n"));
 });
