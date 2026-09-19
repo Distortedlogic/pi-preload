@@ -156,7 +156,7 @@ test("collectPreload handles selected media and writes canonical output", async 
 			["text", "image"],
 		);
 		const snapshot = await readFile(join(project, "PRELOAD.md"), "utf8");
-		assert.deepEqual(fileBlockPaths(result.blocks), ["image.png"]);
+		assert.equal(textBlocks(result.blocks)[0]?.text, "File: image.png");
 		assert.ok(snapshot.includes(`![Preloaded image](data:image/png;base64,${image.toString("base64")})`));
 		assert.ok(Buffer.byteLength(snapshot) < 256 * 1024);
 	});
