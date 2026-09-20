@@ -22,7 +22,19 @@ Do not read lock files while mapping.
 
 ## Build the configuration
 
-Edit the top-level `pi-preload` section in the root `<cwd>/AGENTS.yml`. Do not replace the complete document. Preserve unrelated top-level keys and other extension-owned sections. Use `presets` for packaged preset names and `extends` for paths to other project directories. Use quoted string lists. Shared presets use the same inner format.
+Edit the top-level `pi-preload` section in the root `<cwd>/AGENTS.yml`. Do not replace the complete document. Preserve unrelated top-level keys and other extension-owned sections. Use quoted string lists.
+
+The section accepts only these keys:
+
+- `presets`: packaged preset names
+- `extends`: paths to other project directories
+- `includes`: file globs and explicit paths
+- `excludes`: file globs and explicit paths
+- `contexts`: packaged context source names
+
+A context source generates Markdown from the project instead of selecting files. Use `contexts` only for a named source that the preload package ships. A packaged preset may supply contexts; `dioxus-rust` supplies the `dioxus` context.
+
+Shared presets use the same keys, except that a preset cannot use `extends` and every preset include or exclude pattern must be an absolute path.
 
 Name useful root files explicitly. Do not use `**/*` at the repository root.
 
@@ -54,6 +66,7 @@ pi-preload:
     - "pi-extension"
   includes:
     - "src/**/*.ts"
+    - "test/**/*.ts"
     - "package.json"
 ```
 
