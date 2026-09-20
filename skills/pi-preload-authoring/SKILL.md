@@ -1,64 +1,27 @@
 ---
 name: pi-preload-authoring
-description: Use when creating, changing, or auditing a repository AGENTS.yml top-level pi-preload object. Applies the local repository-mapping, source-glob, exclusion, and preload-limit rules.
+description: Use when creating, changing, or auditing the top-level pi-preload object in a repository AGENTS.yml. Do not use for other AGENTS.yml sections.
 ---
 
-# Local AGENTS.yml preload procedure
+# AGENTS.yml pi-preload section
 
-## Map the repository
+## Keys
 
-Start at the repository root:
+`pi-preload/agents.ts` accepts only `presets`, `extends`, `includes`, `excludes`, and `contexts`.
 
-```sh
-ls -la
-tree -a -L 3 -I '.git|node_modules|.venv|venv|__pycache__|dist|build|coverage|target'
-```
+- `extends` takes paths to other project directories.
+- `contexts` takes packaged context sources that generate Markdown from the project. `dioxus` is the only source.
+- Presets are `pi-extension` and `dioxus-rust`.
 
-Use another narrow `tree` command for a source area that needs more depth. Do not increase depth for the complete repository.
+A preset cannot use `extends`, and each preset pattern must be absolute.
 
-Identify the root files, workspace or package roots, primary source directories, and central test or standards files that an agent commonly needs for generic questions and tasks.
+## Selection
 
-Do not read lock files while mapping.
+Edit only the `pi-preload` section. Keep the other top-level keys.
 
-## Build the configuration
+Name root files explicitly. Do not use `**/*` at the repository root. Use a directory and suffix glob for source, so a renamed file stays matched. Use only the suffixes that the directory holds.
 
-Edit the top-level `pi-preload` section in the root `<cwd>/AGENTS.yml`. Do not replace the complete document. Preserve unrelated top-level keys and other extension-owned sections. Use quoted string lists.
-
-The section accepts only these keys:
-
-- `presets`: packaged preset names
-- `extends`: paths to other project directories
-- `includes`: file globs and explicit paths
-- `excludes`: file globs and explicit paths
-- `contexts`: packaged context source names
-
-A context source generates Markdown from the project instead of selecting files. Use `contexts` only for a named source that the preload package ships. A packaged preset may supply contexts; `dioxus-rust` supplies the `dioxus` context.
-
-Shared presets use the same keys, except that a preset cannot use `extends` and every preset include or exclude pattern must be an absolute path.
-
-Name useful root files explicitly. Do not use `**/*` at the repository root.
-
-Use directory and programming-language suffix globs for source code. This keeps renamed and new source files in context:
-
-```yaml
-pi-preload:
-  presets:
-    - "common"
-  includes:
-    - "package.json"
-    - "tsconfig.json"
-    - "src/**/*.{py,ts,rs}"
-pi-modes:
-  review: "Review the changes."
-pi-prompts:
-  prompts:
-    summarize:
-      body: "Summarize the changes."
-```
-
-Use only suffixes found in the target source directory.
-
-For a Pi extension repository created from the shared Copier template, keep this baseline unless the source layout needs another narrow include:
+Baseline for a repository from the Copier template:
 
 ```yaml
 pi-preload:
@@ -70,50 +33,12 @@ pi-preload:
     - "package.json"
 ```
 
-For selected monorepo packages, prefer narrow brace globs:
+Do not select lock files, secrets, generated or vendored directories, binary assets, or large fixtures. The extension also ignores Git-ignored files, lock files, `AGENTS.yml`, `PRELOAD.md`, and `TREE.txt`. Do not use that safeguard to justify a wide glob.
 
-```yaml
-pi-preload:
-  includes:
-    - "packages/{core,extension}/{package.json,tsconfig.json}"
-    - "packages/{core,extension}/src/**/*.{ts,tsx}"
-```
+## Limits
 
-Use explicit paths for suffixless files and selected root configuration. Use a parent or sibling glob only when it is commonly required for work in this repository.
-
-Include tests or documentation only when they are small and commonly needed for general work. Target their narrow directories and useful suffixes.
-
-## Exclusions
-
-The manifest must not select:
-
-- lock files
-- `.env` files or credentials
-- Git-ignored files
-- dependency, cache, build, coverage, or generated directories
-- binary assets or model weights
-- large snapshots, fixtures, exports, or machine-generated JSON
-- vendored source
-
-The preload extension also applies Git ignore rules and default lockfile exclusions. Do not depend on those safeguards to justify a broad manifest.
+`pi-preload/src/index.ts` sets 1,000 files, 256 KiB for each file and each context block, and 2 MiB total. A file must be UTF-8 text. A binary file is accepted only as an image that an explicit path names.
 
 ## Validate
 
-Run the actual preload collector. Inspect matched paths, file count, and total bytes without printing all file contents.
-
-Current limits:
-
-- 1,000 files
-- 256 KiB per file
-- 2 MiB total source bytes
-- valid UTF-8 text, plus supported images selected by explicit file paths
-
-Confirm that:
-
-- important explicit root files match
-- primary source files match through suffix globs
-- a source-file rename would remain matched
-- no lock, secret, ignored, generated, binary, or low-utility bulk file matches
-- all limits pass
-
-If the selection is too large, narrow source directories before removing useful explicit root files.
+Start a new session in the repository. The extension writes `PRELOAD.md` and reports the file count and the size. Inspect the `===== BEGIN FILE` lines, not the file contents.
