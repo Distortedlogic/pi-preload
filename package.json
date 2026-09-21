@@ -53,6 +53,6 @@
 		"isbinaryfile": "5.0.0",
 		"nunjucks": "3.2.4",
 		"p-map": "7.0.7",
-		"pi-agents-yaml": "github:Distortedlogic/pi-agents-yaml#6d3329fab2df9165c7828a632cf90d4af287ab0b"
+		"pi-agents-yaml": "github:Distortedlogic/pi-agents-yaml#main"
 	}
 }
