@@ -76,6 +76,8 @@ test("collectPreload validates configuration and applies merged selection rules"
 		excludes: ["src/excluded.ts"],
 	};
 	assert.equal(Value.Check(configurationSchema, configuration), true);
+	assert.equal(Value.Check(configurationSchema, { ...configuration, signatures: ["src/**/*.ts"] }), true);
+	assert.equal(Value.Check(configurationSchema, { ...configuration, signatures: [42] }), false);
 	assert.equal(Value.Check(configurationSchema, { ...configuration, files: ["src/**/*.ts"] }), false);
 
 	await Promise.all([mkdir(join(project, "src")), mkdir(join(project, "ignored")), mkdir(join(project, "nested"))]);
@@ -120,6 +122,45 @@ test("collectPreload validates configuration and applies merged selection rules"
 		}),
 		/invalid\.yml.*pi-preload/,
 	);
+
+	await writeFile(join(presetDirectory, "relative-signature.yml"), JSON.stringify({ signatures: ["src/**/*.ts"] }));
+	await assert.rejects(
+		collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, {
+			presets: ["relative-signature"],
+		}),
+		/Context preload preset pattern must be absolute: src\/\*\*\/\*\.ts/,
+	);
+});
+
+test("collectPreload merges signature presets and project references with full-mode precedence", async (t) => {
+	const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
+	const child = join(project, "child");
+	const presetPath = join(project, "preset.ts");
+	await mkdir(child);
+	await Promise.all([
+		writeFile(join(presetDirectory, "signature-base.yml"), JSON.stringify({ signatures: [presetPath] })),
+		writeFile(join(child, "AGENTS.yml"), JSON.stringify({ "pi-preload": { signatures: ["child.ts"] } })),
+		writeFile(presetPath, 'export function preset() { return "preset implementation"; }\n'),
+		writeFile(join(child, "child.ts"), 'export function child() { return "child implementation"; }\n'),
+		writeFile(join(project, "own.ts"), 'export function own() { return "own implementation"; }\n'),
+		writeFile(join(project, "overlap.ts"), 'export function overlap() { return "full implementation"; }\n'),
+	]);
+
+	const result = await collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, {
+		presets: ["signature-base"],
+		extends: ["./child"],
+		signatures: ["own.ts", "overlap.ts"],
+		includes: ["overlap.ts"],
+	});
+
+	assert.ok(result);
+	assert.deepEqual(fileBlockPaths(result.blocks).sort(), ["child/child.ts", "overlap.ts", "own.ts", "preset.ts"]);
+	const snapshot = await readFile(join(project, "PRELOAD.md"), "utf8");
+	for (const declaration of ["function child()", "function own()", "function preset()", "function overlap()"]) {
+		assert.ok(snapshot.includes(declaration));
+	}
+	assert.doesNotMatch(snapshot, /child implementation|own implementation|preset implementation/);
+	assert.match(snapshot, /full implementation/);
 });
 
 test("collectPreload handles selected media and writes canonical output", async (t) => {
@@ -189,7 +230,8 @@ test("collectPreload resolves selected contexts and reports scoped failures", as
 
 		assert.ok(result);
 		assert.equal(result.count, 1);
-		assert.equal(result.bytes, Buffer.byteLength("selected"));
+		assert.equal(result.sourceBytes, Buffer.byteLength("selected"));
+		assert.equal(result.contextBytes, Buffer.byteLength(await readFile(join(project, "PRELOAD.md"), "utf8")));
 		assert.deepEqual(
 			textBlocks(result.blocks).map((block) => block.text),
 			[
@@ -345,7 +387,7 @@ test("collectPreload applies the total byte limit across project scopes", async 
 
 	await assert.rejects(
 		collectPreload(parent, AbortSignal.timeout(5_000), undefined, undefined, configuration),
-		/Selected files grew beyond/,
+		/Context with headings is over/,
 	);
 });
 

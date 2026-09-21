@@ -7,6 +7,7 @@ export const configurationSchema = Type.Object(
 		extends: Type.Optional(STRING_LIST_SCHEMA),
 		presets: Type.Optional(STRING_LIST_SCHEMA),
 		includes: Type.Optional(STRING_LIST_SCHEMA),
+		signatures: Type.Optional(STRING_LIST_SCHEMA),
 		excludes: Type.Optional(STRING_LIST_SCHEMA),
 		contexts: Type.Optional(STRING_LIST_SCHEMA),
 	},
