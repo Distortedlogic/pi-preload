@@ -5,9 +5,11 @@ import { dirname, join } from "node:path";
 import test, { type TestContext } from "node:test";
 import type { TextContent } from "@earendil-works/pi-ai";
 import nunjucks from "nunjucks";
+import {
+	type PiPreloadConfiguration as Configuration,
+	PiPreloadConfigurationSchema as configurationSchema,
+} from "pi-agents-yaml";
 import { Value } from "typebox/value";
-import type { Configuration } from "../agents.ts";
-import { configurationSchema } from "../agents.ts";
 import { type DioxusFacts, parseDioxusMetadata } from "../context/dioxus/facts.ts";
 import { collectPreload } from "../src/index.ts";
 
@@ -120,16 +122,18 @@ test("collectPreload validates configuration and applies merged selection rules"
 		collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, {
 			presets: ["invalid"],
 		}),
-		/invalid\.yml.*pi-preload/,
+		/Invalid pi-preload preset .*invalid\.yml/,
 	);
 
-	await writeFile(join(presetDirectory, "relative-signature.yml"), JSON.stringify({ signatures: ["src/**/*.ts"] }));
-	await assert.rejects(
-		collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, {
-			presets: ["relative-signature"],
-		}),
-		/Context preload preset pattern must be absolute: src\/\*\*\/\*\.ts/,
+	await writeFile(join(presetDirectory, "relative-includes.yml"), JSON.stringify({ includes: ["src/**/*.ts"] }));
+	const relativePresetResult = await collectPreload(
+		project,
+		AbortSignal.timeout(5_000),
+		presetDirectory,
+		contextDirectory,
+		{ presets: ["relative-includes"], excludes: ["src/excluded.ts"] },
 	);
+	assert.deepEqual(fileBlockPaths(relativePresetResult?.blocks ?? []), ["src/included.ts"]);
 });
 
 test("collectPreload merges signature presets and project references with full-mode precedence", async (t) => {
@@ -365,7 +369,7 @@ test("collectPreload follows nested project references and rejects cycles", asyn
 
 		await assert.rejects(
 			collectPreload(parent, AbortSignal.timeout(5_000), undefined, undefined, { extends: ["./child"] }),
-			/Circular context preload preset/,
+			/Circular AGENTS\.yml extends/,
 		);
 	});
 });

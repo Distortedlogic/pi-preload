@@ -5,46 +5,24 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, formatSize } from "@earendil-works/pi-coding-agent";
 import { fileTypeFromBuffer } from "file-type";
-import { globby, isDynamicPattern } from "globby";
 import { isBinaryFile } from "isbinaryfile";
 import nunjucks from "nunjucks";
 import pMap from "p-map";
-import { readYamlFile } from "read-yaml-file";
-import { Value } from "typebox/value";
-import { type Configuration, configurationSchema } from "../agents.ts";
+import {
+	type PiPreloadConfiguration as Configuration,
+	loadAgentsSection,
+	PiPreloadConfigurationSchema,
+	resolveAgentsGraph,
+	resolveFileSelection,
+} from "pi-agents-yaml";
 import { foldSignatures } from "./fold.ts";
 import { type SignatureLanguage, signatureLanguage } from "./languages.ts";
 
 const CUSTOM_TYPE = "pi-preload";
 const OWNED_SECTION_PATH = "pi-preload";
-const LOCK_FILE_GLOBS = [
-	"**/.terraform.lock.hcl",
-	"**/bun.lock",
-	"**/bun.lockb",
-	"**/Cargo.lock",
-	"**/composer.lock",
-	"**/deno.lock",
-	"**/flake.lock",
-	"**/Gemfile.lock",
-	"**/gradle.lockfile",
-	"**/mix.lock",
-	"**/npm-shrinkwrap.json",
-	"**/package-lock.json",
-	"**/Package.resolved",
-	"**/packages.lock.json",
-	"**/paket.lock",
-	"**/Pipfile.lock",
-	"**/pnpm-lock.yaml",
-	"**/Podfile.lock",
-	"**/poetry.lock",
-	"**/pubspec.lock",
-	"**/uv.lock",
-	"**/yarn.lock",
-];
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_TOTAL_BYTES = 2 * 1024 * 1024;
 const MAX_FILES = 1000;
-const TREE_FILE = "TREE.txt";
 const PRELOAD_FILE = "PRELOAD.md";
 const CONCURRENCY = 8;
 const DEADLINE_MS = 30_000;
@@ -53,7 +31,6 @@ const DEFAULT_CONTEXT_DIRECTORY = fileURLToPath(new URL("../context/", import.me
 const CONTEXT_FACTS_FILE = "facts.ts";
 const CONTEXT_TEMPLATE_FILE = "index.md.njk";
 type PreloadBlock = TextContent | ImageContent;
-type SelectionMode = "full" | "signatures";
 
 function blockBytes(block: PreloadBlock) {
 	return block.type === "text" ? Buffer.byteLength(block.text) : Buffer.byteLength(block.data);
@@ -67,14 +44,6 @@ function serializePreloadBlocks(blocks: readonly PreloadBlock[]) {
 		.join("\n\n")}\n`;
 }
 
-type PreloadConfiguration = { includes: string[]; signatures: string[]; excludes: string[]; contexts: string[] };
-type ProjectScope = {
-	projectRoot: string;
-	includes: string[];
-	signatures: string[];
-	excludes: string[];
-	contexts: string[];
-};
 type ContextFactsLoader = (input: { cwd: string; signal: AbortSignal }) => Promise<Record<string, unknown> | undefined>;
 type ContextSource = { name: string; facts: Record<string, unknown>; templatePath: string };
 type ContextReference = { projectRoot: string; name: string };
@@ -94,37 +63,6 @@ export class UnsupportedSignatureLanguageError extends Error {
 }
 
 const CONTEXT_NAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
-const PRESET_NAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
-
-async function loadYamlConfiguration(sourcePath: string): Promise<Configuration>;
-async function loadYamlConfiguration(
-	sourcePath: string,
-	select: (document: unknown) => unknown,
-): Promise<Configuration | undefined>;
-async function loadYamlConfiguration(sourcePath: string, select?: (document: unknown) => unknown) {
-	let document: unknown;
-	try {
-		document = await readYamlFile(sourcePath);
-	} catch (error) {
-		const detail = error instanceof Error ? error.message : String(error);
-		throw new Error(`Could not parse ${sourcePath} at ${OWNED_SECTION_PATH}: ${detail}`, { cause: error });
-	}
-
-	const value = select ? select(document) : document;
-	if (select && value === undefined) return;
-	try {
-		return Value.Parse(configurationSchema, value);
-	} catch (error) {
-		const detail = error instanceof Error ? error.message : String(error);
-		throw new Error(`Invalid configuration in ${sourcePath} at ${OWNED_SECTION_PATH}: ${detail}`, { cause: error });
-	}
-}
-
-function selectOwnedSection(document: unknown) {
-	return typeof document === "object" && document !== null && !Array.isArray(document)
-		? (document as Record<string, unknown>)[OWNED_SECTION_PATH]
-		: undefined;
-}
 
 async function statProjectConfiguration(sourcePath: string, signal: AbortSignal) {
 	signal.throwIfAborted();
@@ -149,18 +87,7 @@ async function statProjectConfiguration(sourcePath: string, signal: AbortSignal)
 async function loadProjectConfiguration(cwd: string, signal: AbortSignal) {
 	const sourcePath = resolve(cwd, "AGENTS.yml");
 	if (!(await statProjectConfiguration(sourcePath, signal))) return;
-	return loadYamlConfiguration(sourcePath, selectOwnedSection);
-}
-
-async function loadReferencedProjectConfiguration(sourcePath: string, signal: AbortSignal) {
-	if (!(await statProjectConfiguration(sourcePath, signal))) {
-		throw new Error(`Referenced project configuration not found: ${sourcePath}`);
-	}
-	const configuration = await loadYamlConfiguration(sourcePath, selectOwnedSection);
-	if (!configuration) {
-		throw new Error(`Referenced project configuration ${sourcePath} has no ${OWNED_SECTION_PATH} section.`);
-	}
-	return configuration;
+	return (await loadAgentsSection(sourcePath, OWNED_SECTION_PATH, PiPreloadConfigurationSchema, { signal }))?.value;
 }
 
 function validateContextName(name: string) {
@@ -173,98 +100,6 @@ function validateContextName(name: string) {
 	) {
 		throw new Error(`Invalid context source name: ${JSON.stringify(name)}`);
 	}
-}
-
-function resolvePresetPath(presetDirectory: string, preset: string) {
-	if (!PRESET_NAME_PATTERN.test(preset)) {
-		throw new Error(`Invalid context preload preset name: ${JSON.stringify(preset)}`);
-	}
-	return resolve(presetDirectory, `${preset}.yml`);
-}
-
-async function loadPresetConfiguration(
-	config: Configuration,
-	configPath: string,
-	presetDirectory: string,
-	signal: AbortSignal,
-	ancestors: string[],
-): Promise<PreloadConfiguration> {
-	const path = resolve(configPath);
-	if (ancestors.includes(path)) throw new Error(`Circular context preload preset: ${path}`);
-	if (config.extends?.length) {
-		throw new Error(`Context preload preset ${path} cannot extend project paths; use presets.`);
-	}
-	const ownIncludes = config.includes ?? [];
-	const ownSignatures = config.signatures ?? [];
-	const ownExcludes = config.excludes ?? [];
-	const relativePattern = [...ownIncludes, ...ownSignatures, ...ownExcludes].find((pattern) => !isAbsolute(pattern));
-	if (relativePattern) throw new Error(`Context preload preset pattern must be absolute: ${relativePattern}`);
-	const ownContexts = config.contexts ?? [];
-	const nextAncestors = [...ancestors, path];
-	const inherited = await pMap(
-		config.presets ?? [],
-		async (preset) => {
-			const presetPath = resolvePresetPath(presetDirectory, preset);
-			if (nextAncestors.includes(presetPath)) throw new Error(`Circular context preload preset: ${presetPath}`);
-			const presetConfiguration = await loadYamlConfiguration(presetPath);
-			return loadPresetConfiguration(presetConfiguration, presetPath, presetDirectory, signal, nextAncestors);
-		},
-		{ concurrency: CONCURRENCY, signal },
-	);
-	return {
-		includes: [...inherited.flatMap((configuration) => configuration.includes), ...ownIncludes],
-		signatures: [...inherited.flatMap((configuration) => configuration.signatures), ...ownSignatures],
-		excludes: [...inherited.flatMap((configuration) => configuration.excludes), ...ownExcludes],
-		contexts: [...new Set([...inherited.flatMap((configuration) => configuration.contexts), ...ownContexts])],
-	};
-}
-
-async function loadConfiguration(
-	config: Configuration,
-	configPath: string,
-	presetDirectory: string,
-	signal: AbortSignal,
-	ancestors: string[] = [],
-): Promise<ProjectScope[]> {
-	const path = resolve(configPath);
-	if (ancestors.includes(path)) throw new Error(`Circular context preload preset: ${path}`);
-	const nextAncestors = [...ancestors, path];
-	const ownIncludes = config.includes ?? [];
-	const ownSignatures = config.signatures ?? [];
-	const ownExcludes = config.excludes ?? [];
-	const ownContexts = config.contexts ?? [];
-	const presets = await pMap(
-		config.presets ?? [],
-		async (preset) => {
-			const presetPath = resolvePresetPath(presetDirectory, preset);
-			if (nextAncestors.includes(presetPath)) throw new Error(`Circular context preload preset: ${presetPath}`);
-			const presetConfiguration = await loadYamlConfiguration(presetPath);
-			return loadPresetConfiguration(presetConfiguration, presetPath, presetDirectory, signal, nextAncestors);
-		},
-		{ concurrency: CONCURRENCY, signal },
-	);
-	const scopes = await pMap(
-		config.extends ?? [],
-		async (reference) => {
-			const referencePath = resolve(dirname(path), reference, "AGENTS.yml");
-			if (nextAncestors.includes(referencePath)) {
-				throw new Error(`Circular context preload preset: ${referencePath}`);
-			}
-			const referenceConfiguration = await loadReferencedProjectConfiguration(referencePath, signal);
-			return loadConfiguration(referenceConfiguration, referencePath, presetDirectory, signal, nextAncestors);
-		},
-		{ concurrency: CONCURRENCY, signal },
-	);
-	return [
-		...scopes.flat(),
-		{
-			projectRoot: dirname(path),
-			includes: [...presets.flatMap((preset) => preset.includes), ...ownIncludes],
-			signatures: [...presets.flatMap((preset) => preset.signatures), ...ownSignatures],
-			excludes: [...presets.flatMap((preset) => preset.excludes), ...ownExcludes],
-			contexts: [...new Set([...presets.flatMap((preset) => preset.contexts), ...ownContexts])],
-		},
-	];
 }
 
 async function loadContextSource(
@@ -353,141 +188,104 @@ export async function collectPreload(
 	contextDirectory = DEFAULT_CONTEXT_DIRECTORY,
 	configuration: Configuration,
 ) {
-	const scopes = await loadConfiguration(configuration, resolve(cwd, "AGENTS.yml"), presetDirectory, signal);
+	const graph = await resolveAgentsGraph({
+		rootPath: cwd,
+		sectionName: OWNED_SECTION_PATH,
+		schema: PiPreloadConfigurationSchema,
+		rootValue: configuration,
+		presetDirectory,
+		signal,
+	});
 	const contextBlocks = await loadContextSources(
-		scopes.flatMap((scope) => scope.contexts.map((name) => ({ projectRoot: scope.projectRoot, name }))),
+		graph.nodes.flatMap((node) =>
+			(node.section?.value.contexts ?? []).map((name) => ({ projectRoot: node.rootPath, name })),
+		),
 		contextDirectory,
 		signal,
 	);
 	signal.throwIfAborted();
 
-	const sessionRoot = resolve(cwd);
-	const scopedCandidates = await pMap(
-		scopes,
-		async (scope) => {
-			if (scope.includes.length === 0 && scope.signatures.length === 0) return [];
-			const sessionScope = scope.projectRoot === sessionRoot;
-			const [signatureMatches, fullMatches] = await Promise.all([
-				globby(scope.signatures, {
-					cwd: scope.projectRoot,
-					gitignore: sessionScope,
-					ignoreFiles: sessionScope ? undefined : "**/.gitignore",
-					ignore: ["AGENTS.yml", PRELOAD_FILE, TREE_FILE, ...LOCK_FILE_GLOBS, ...scope.excludes],
-					onlyFiles: true,
-					followSymbolicLinks: false,
-					unique: true,
-					objectMode: true,
-					stats: true,
-				}),
-				globby(scope.includes, {
-					cwd: scope.projectRoot,
-					gitignore: sessionScope,
-					ignoreFiles: sessionScope ? undefined : "**/.gitignore",
-					ignore: ["AGENTS.yml", PRELOAD_FILE, TREE_FILE, ...LOCK_FILE_GLOBS, ...scope.excludes],
-					onlyFiles: true,
-					followSymbolicLinks: false,
-					unique: true,
-					objectMode: true,
-					stats: true,
-				}),
-			]);
-			return [
-				...signatureMatches.map((file) => ({
-					file,
-					projectRoot: scope.projectRoot,
-					mode: "signatures" as SelectionMode,
-				})),
-				...fullMatches.map((file) => ({ file, projectRoot: scope.projectRoot, mode: "full" as SelectionMode })),
-			];
-		},
-		{ concurrency: CONCURRENCY, signal },
-	);
-	const matchedCandidates = scopedCandidates.flat();
-	const candidates = new Map(
-		(["signatures", "full"] as const).flatMap((mode) =>
-			matchedCandidates
-				.filter((candidate) => candidate.mode === mode)
-				.map(({ file, projectRoot }) => {
-					const path = resolve(projectRoot, file.path);
-					return [path, { file, path, mode }] as const;
-				}),
-		),
-	);
-	signal.throwIfAborted();
-
+	const candidates = await resolveFileSelection({ graph, excludes: ["AGENTS.yml"], signal });
 	const explicitFilePaths = new Set(
-		scopes.flatMap((scope) =>
-			scope.includes
-				.filter((pattern) => !isDynamicPattern(pattern))
-				.map((pattern) => resolve(scope.projectRoot, pattern)),
+		graph.nodes.flatMap((node) =>
+			(node.section?.value.includes ?? []).map((pattern) => resolve(node.rootPath, pattern)),
 		),
 	);
 	const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 	const selectedFiles = await pMap(
-		[...candidates.values()],
-		async ({ file, path, mode }) => {
+		candidates,
+		async ({ absolutePath: path, displayPath, mode, sourceRoot }) => {
 			const bytes = await readFile(path, { signal });
 			const binary = await isBinaryFile(bytes);
-			if (binary && mode === "signatures") throw new SignatureBinaryFileError(file.path);
+			if (binary && mode === "signature") throw new SignatureBinaryFileError(displayPath);
 			if (binary && !explicitFilePaths.has(path)) return;
-			if (!file.dirent.isFile()) throw new Error(`Not a regular file: ${file.path}`);
-			const fileBytes = file.stats?.size;
-			if (fileBytes === undefined) throw new Error(`Could not read file metadata: ${file.path}`);
+			const fileStats = await stat(path);
+			if (!fileStats.isFile()) throw new Error(`Not a regular file: ${displayPath}`);
+			const fileBytes = fileStats.size;
 			if (fileBytes > MAX_FILE_BYTES) {
-				throw new Error(`${file.path} is ${formatSize(fileBytes)}; the file limit is ${formatSize(MAX_FILE_BYTES)}.`);
+				throw new Error(`${displayPath} is ${formatSize(fileBytes)}; the file limit is ${formatSize(MAX_FILE_BYTES)}.`);
 			}
 			if (bytes.length > MAX_FILE_BYTES) {
-				throw new Error(`${file.path} grew beyond ${formatSize(MAX_FILE_BYTES)}.`);
+				throw new Error(`${displayPath} grew beyond ${formatSize(MAX_FILE_BYTES)}.`);
 			}
 
+			const selectionPath = relative(sourceRoot, path);
 			if (binary) {
-				const labelPath = relative(cwd, path);
 				const fileType = await fileTypeFromBuffer(bytes);
 				if (!fileType?.mime.startsWith("image/")) {
-					throw new Error(`${file.path} is an explicitly selected binary file, but Pi context supports only images.`);
+					throw new Error(`${displayPath} is an explicitly selected binary file, but Pi context supports only images.`);
 				}
 				return {
-					file,
+					displayPath,
+					selectionPath,
 					path,
 					mode,
 					bytes: bytes.length,
 					text: undefined,
 					registry: undefined,
 					blocks: [
-						{ type: "text" as const, text: `File: ${labelPath}` },
+						{ type: "text" as const, text: `File: ${displayPath}` },
 						{ type: "image" as const, data: bytes.toString("base64"), mimeType: fileType.mime },
 					],
 				};
 			}
 
-			const registry: SignatureLanguage | undefined = mode === "signatures" ? signatureLanguage(path) : undefined;
-			if (mode === "signatures" && !registry) throw new UnsupportedSignatureLanguageError(file.path);
+			const registry: SignatureLanguage | undefined = mode === "signature" ? signatureLanguage(path) : undefined;
+			if (mode === "signature" && !registry) throw new UnsupportedSignatureLanguageError(displayPath);
 			let text: string;
 			try {
 				text = decoder.decode(bytes);
 			} catch {
-				throw new Error(`${file.path} is not valid UTF-8 text.`);
+				throw new Error(`${displayPath} is not valid UTF-8 text.`);
 			}
-			return { file, path, mode, bytes: bytes.length, text, registry, blocks: undefined };
+			return { displayPath, selectionPath, path, mode, bytes: bytes.length, text, registry, blocks: undefined };
 		},
 		{ concurrency: CONCURRENCY, signal },
 	);
 	const selectedSources = selectedFiles.filter((file) => file !== undefined);
 	const signatureSources = selectedSources.flatMap((file) =>
-		file.mode === "signatures" && file.text !== undefined && file.registry
+		file.mode === "signature" && file.text !== undefined && file.registry
 			? [{ path: file.path, content: file.text, registry: file.registry }]
 			: [],
 	);
 	const foldedSignatures =
 		signatureSources.length > 0 ? await foldSignatures(signatureSources) : new Map<string, string>();
 	const files = selectedSources.map((source) => {
-		if (source.blocks !== undefined) return { file: source.file, bytes: source.bytes, blocks: source.blocks };
-		const text = source.mode === "signatures" ? foldedSignatures.get(source.path) : source.text;
-		if (text === undefined) throw new Error(`Signature folding returned no output for ${source.file.path}.`);
-		const label = JSON.stringify(relative(cwd, source.path));
+		if (source.blocks !== undefined) {
+			return {
+				displayPath: source.displayPath,
+				selectionPath: source.selectionPath,
+				bytes: source.bytes,
+				blocks: source.blocks,
+			};
+		}
+		const text = source.mode === "signature" ? foldedSignatures.get(source.path) : source.text;
+		if (text === undefined) throw new Error(`Signature folding returned no output for ${source.displayPath}.`);
+		const label = JSON.stringify(source.displayPath);
 		const newline = text.endsWith("\n") ? "" : "\n";
 		return {
-			file: source.file,
+			displayPath: source.displayPath,
+			selectionPath: source.selectionPath,
 			bytes: source.bytes,
 			blocks: [
 				{
@@ -500,7 +298,9 @@ export async function collectPreload(
 	signal.throwIfAborted();
 	if (files.length > MAX_FILES) throw new Error(`Preload has more than ${MAX_FILES} files.`);
 	files.sort(
-		(a, b) => dirname(a.file.path).localeCompare(dirname(b.file.path)) || a.file.path.localeCompare(b.file.path),
+		(a, b) =>
+			dirname(a.selectionPath).localeCompare(dirname(b.selectionPath)) ||
+			a.selectionPath.localeCompare(b.selectionPath),
 	);
 	const originalSourceBytes = files.reduce((total, file) => total + file.bytes, 0);
 	const blocks: PreloadBlock[] = [...contextBlocks, ...files.flatMap((file) => file.blocks)];

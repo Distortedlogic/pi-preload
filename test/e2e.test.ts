@@ -11,7 +11,7 @@ const codingAgentEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-c
 const cliPath = join(dirname(codingAgentEntry), "cli.js");
 
 function agentsConfiguration(configuration: unknown) {
-	return JSON.stringify({ "pi-preload": configuration });
+	return JSON.stringify({ "other-extension": { enabled: true }, "pi-preload": configuration });
 }
 
 function preloadedFile(snapshot: string, path: string): string {
@@ -79,7 +79,8 @@ test("trusted Pi keeps one hidden preload message across reload", { timeout: 20_
 		assert.ok(preload);
 		if (preload.role !== "custom") assert.fail("Expected a custom preload message");
 		assert.equal(preload.display, false);
-		await readFile(join(project, "PRELOAD.md"), "utf8");
+		const snapshot = await readFile(join(project, "PRELOAD.md"), "utf8");
+		assert.ok(snapshot.includes("e2e preloaded text"));
 	};
 
 	await assertSinglePreload();

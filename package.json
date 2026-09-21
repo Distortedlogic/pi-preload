@@ -15,12 +15,11 @@
 		"check": "npm run typecheck && npm run lint && npm test",
 		"lint": "biome check .",
 		"test": "npm run test:unit && npm run test:e2e",
-		"test:e2e": "node --experimental-strip-types --test test/e2e.test.ts",
-		"test:unit": "node --experimental-strip-types --test test/unit.test.ts",
+		"test:e2e": "node --import tsx --test test/e2e.test.ts",
+		"test:unit": "node --import tsx --test test/unit.test.ts",
 		"typecheck": "tsc --noEmit"
 	},
 	"files": [
-		"agents.ts",
 		"src",
 		"README.md",
 		"LICENSE",
@@ -39,22 +38,21 @@
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-ai": "*",
-		"@earendil-works/pi-coding-agent": ">=0.85.1 <1",
-		"typebox": "*"
+		"@earendil-works/pi-coding-agent": ">=0.85.1 <1"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.5.14",
 		"@types/node": "^22.19.0",
 		"@types/nunjucks": "3.2.6",
+		"tsx": "4.23.13",
 		"typescript": "~7.0.2"
 	},
 	"dependencies": {
 		"@getgrit/gritql": "0.0.3",
 		"file-type": "22.1.0",
-		"globby": "16.2.4",
 		"isbinaryfile": "5.0.0",
 		"nunjucks": "3.2.4",
 		"p-map": "7.0.7",
-		"read-yaml-file": "3.0.0"
+		"pi-agents-yaml": "github:Distortedlogic/pi-agents-yaml#6d3329fab2df9165c7828a632cf90d4af287ab0b"
 	}
 }
