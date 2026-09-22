@@ -1,32 +1,26 @@
-import type { Stats } from "node:fs";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, formatSize } from "@earendil-works/pi-coding-agent";
 import { fileTypeFromBuffer } from "file-type";
-import { isBinaryFile } from "isbinaryfile";
 import nunjucks from "nunjucks";
 import pMap from "p-map";
 import {
 	type PiPreloadConfiguration as Configuration,
-	loadAgentsSection,
-	PiPreloadConfigurationSchema,
-	resolveAgentsGraph,
 	resolveFileSelection,
+	resolvePiPreloadGraph,
 } from "pi-agents-yaml";
 import { foldSignatures } from "./fold.ts";
 import { type SignatureLanguage, signatureLanguage } from "./languages.ts";
 
 const CUSTOM_TYPE = "pi-preload";
-const OWNED_SECTION_PATH = "pi-preload";
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_TOTAL_BYTES = 2 * 1024 * 1024;
 const MAX_FILES = 1000;
 const PRELOAD_FILE = "PRELOAD.md";
 const CONCURRENCY = 8;
 const DEADLINE_MS = 30_000;
-const DEFAULT_PRESET_DIRECTORY = fileURLToPath(new URL("../presets/", import.meta.url));
 const DEFAULT_CONTEXT_DIRECTORY = fileURLToPath(new URL("../context/", import.meta.url));
 const CONTEXT_FACTS_FILE = "facts.ts";
 const CONTEXT_TEMPLATE_FILE = "index.md.njk";
@@ -63,32 +57,6 @@ export class UnsupportedSignatureLanguageError extends Error {
 }
 
 const CONTEXT_NAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
-
-async function statProjectConfiguration(sourcePath: string, signal: AbortSignal) {
-	signal.throwIfAborted();
-	let sourceStats: Stats;
-	try {
-		sourceStats = await stat(sourcePath);
-	} catch (error) {
-		signal.throwIfAborted();
-		if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
-		throw error;
-	}
-	signal.throwIfAborted();
-	if (!sourceStats.isFile()) {
-		throw new Error(`Invalid configuration source ${sourcePath} at ${OWNED_SECTION_PATH}: expected a regular file.`);
-	}
-	if (sourceStats.size > MAX_FILE_BYTES) {
-		throw new Error(`${sourcePath} at ${OWNED_SECTION_PATH} exceeds ${formatSize(MAX_FILE_BYTES)}.`);
-	}
-	return sourceStats;
-}
-
-async function loadProjectConfiguration(cwd: string, signal: AbortSignal) {
-	const sourcePath = resolve(cwd, "AGENTS.yml");
-	if (!(await statProjectConfiguration(sourcePath, signal))) return;
-	return (await loadAgentsSection(sourcePath, OWNED_SECTION_PATH, PiPreloadConfigurationSchema, { signal }))?.value;
-}
 
 function validateContextName(name: string) {
 	const segments = name.split(/[\\/]/);
@@ -184,41 +152,35 @@ async function loadContextSources(references: ContextReference[], contextDirecto
 export async function collectPreload(
 	cwd: string,
 	signal: AbortSignal,
-	presetDirectory = DEFAULT_PRESET_DIRECTORY,
+	presetDirectory?: string,
 	contextDirectory = DEFAULT_CONTEXT_DIRECTORY,
-	configuration: Configuration,
+	configuration?: Configuration,
 ) {
-	const graph = await resolveAgentsGraph({
+	const graph = await resolvePiPreloadGraph({
 		rootPath: cwd,
-		sectionName: OWNED_SECTION_PATH,
-		schema: PiPreloadConfigurationSchema,
-		rootValue: configuration,
-		presetDirectory,
+		...(configuration ? { rootValue: configuration } : {}),
+		...(presetDirectory ? { presetDirectory } : {}),
 		signal,
 	});
 	const contextBlocks = await loadContextSources(
-		graph.nodes.flatMap((node) =>
-			(node.section?.value.contexts ?? []).map((name) => ({ projectRoot: node.rootPath, name })),
-		),
+		graph.nodes.flatMap((node) => node.section.value.contexts.map((name) => ({ projectRoot: node.rootPath, name }))),
 		contextDirectory,
 		signal,
 	);
 	signal.throwIfAborted();
 
-	const candidates = await resolveFileSelection({ graph, excludes: ["AGENTS.yml"], signal });
+	const candidates = await resolveFileSelection({ graph, signal });
 	const explicitFilePaths = new Set(
-		graph.nodes.flatMap((node) =>
-			(node.section?.value.includes ?? []).map((pattern) => resolve(node.rootPath, pattern)),
-		),
+		graph.nodes.flatMap((node) => node.section.value.includes.map((pattern) => resolve(node.rootPath, pattern))),
 	);
 	const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 	const selectedFiles = await pMap(
 		candidates,
 		async ({ absolutePath: path, displayPath, mode, sourceRoot }) => {
 			const bytes = await readFile(path, { signal });
-			const binary = await isBinaryFile(bytes);
-			if (binary && mode === "signature") throw new SignatureBinaryFileError(displayPath);
-			if (binary && !explicitFilePaths.has(path)) return;
+			const fileType = await fileTypeFromBuffer(bytes);
+			if (fileType && mode === "signature") throw new SignatureBinaryFileError(displayPath);
+			if (fileType && !explicitFilePaths.has(path)) return;
 			const fileStats = await stat(path);
 			if (!fileStats.isFile()) throw new Error(`Not a regular file: ${displayPath}`);
 			const fileBytes = fileStats.size;
@@ -230,9 +192,8 @@ export async function collectPreload(
 			}
 
 			const selectionPath = relative(sourceRoot, path);
-			if (binary) {
-				const fileType = await fileTypeFromBuffer(bytes);
-				if (!fileType?.mime.startsWith("image/")) {
+			if (fileType) {
+				if (!fileType.mime.startsWith("image/")) {
 					throw new Error(`${displayPath} is an explicitly selected binary file, but Pi context supports only images.`);
 				}
 				return {
@@ -256,7 +217,9 @@ export async function collectPreload(
 			try {
 				text = decoder.decode(bytes);
 			} catch {
-				throw new Error(`${displayPath} is not valid UTF-8 text.`);
+				if (mode === "signature") throw new SignatureBinaryFileError(displayPath);
+				if (!explicitFilePaths.has(path)) return;
+				throw new Error(`${displayPath} is an explicitly selected binary file, but Pi context supports only images.`);
 			}
 			return { displayPath, selectionPath, path, mode, bytes: bytes.length, text, registry, blocks: undefined };
 		},
@@ -339,15 +302,7 @@ export default function (pi: ExtensionAPI) {
 
 		try {
 			const signal = AbortSignal.timeout(DEADLINE_MS);
-			const configuration = await loadProjectConfiguration(ctx.cwd, signal);
-			if (!configuration) return;
-			const result = await collectPreload(
-				ctx.cwd,
-				signal,
-				DEFAULT_PRESET_DIRECTORY,
-				DEFAULT_CONTEXT_DIRECTORY,
-				configuration,
-			);
+			const result = await collectPreload(ctx.cwd, signal);
 			pi.sendMessage({ customType: CUSTOM_TYPE, content: result.blocks, display: false }, { triggerTurn: false });
 			ctx.ui.notify(
 				`Context preloaded: ${result.count} files — ${formatSize(result.contextBytes)} context from ${formatSize(result.sourceBytes)} source`,

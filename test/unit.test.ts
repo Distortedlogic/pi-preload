@@ -179,7 +179,7 @@ function preloadedFile(snapshot: string, path: string): string {
 	return snapshot.slice(contentStart, endIndex);
 }
 
-test("collectPreload folds callable bodies across supported languages", async (t) => {
+test("collectPreload uses GritQL to fold callable bodies across supported languages", async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-preload-fold-"));
 	t.after(async () => rm(project, { recursive: true, force: true }));
 	const sourceDirectory = join(project, "src");
@@ -397,11 +397,11 @@ test("collectPreload handles selected media and writes canonical output", async 
 	await t.test("rejects a selected non-image binary", async (t) => {
 		const project = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
 		t.after(async () => rm(project, { recursive: true, force: true }));
-		await writeFile(join(project, "invalid.txt"), Uint8Array.from([0xff]));
+		await writeFile(join(project, "invalid.pdf"), Buffer.from("%PDF-1.7\n"));
 
 		await assert.rejects(
 			collectPreload(project, AbortSignal.timeout(5_000), undefined, undefined, {
-				includes: ["invalid.txt"],
+				includes: ["invalid.pdf"],
 			}),
 			/explicitly selected binary file/,
 		);
