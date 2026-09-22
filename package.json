@@ -15,8 +15,8 @@
 		"check": "npm run typecheck && npm run lint && npm test",
 		"lint": "biome check .",
 		"test": "npm run test:unit && npm run test:e2e",
-		"test:e2e": "node --experimental-strip-types --test test/e2e.test.ts",
-		"test:unit": "node --experimental-strip-types --test test/unit.test.ts",
+		"test:e2e": "node --import tsx --test test/e2e.test.ts",
+		"test:unit": "node --import tsx --test test/unit.test.ts",
 		"typecheck": "tsc --noEmit"
 	},
 	"files": [
@@ -44,6 +44,7 @@
 		"@biomejs/biome": "2.5.14",
 		"@types/node": "22.19.0",
 		"@types/nunjucks": "3.2.6",
+		"tsx": "4.23.15",
 		"typescript": "7.0.2"
 	},
 	"dependencies": {
