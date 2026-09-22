@@ -152,14 +152,12 @@ async function loadContextSources(references: ContextReference[], contextDirecto
 export async function collectPreload(
 	cwd: string,
 	signal: AbortSignal,
-	presetDirectory?: string,
-	contextDirectory = DEFAULT_CONTEXT_DIRECTORY,
 	configuration?: Configuration,
+	contextDirectory = DEFAULT_CONTEXT_DIRECTORY,
 ) {
 	const graph = await resolvePiPreloadGraph({
 		rootPath: cwd,
 		...(configuration ? { rootValue: configuration } : {}),
-		...(presetDirectory ? { presetDirectory } : {}),
 		signal,
 	});
 	const contextBlocks = await loadContextSources(

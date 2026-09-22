@@ -23,10 +23,9 @@ async function createDynamicFixture(t: TestContext) {
 	const root = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
 	t.after(async () => rm(root, { recursive: true, force: true }));
 	const project = join(root, "project");
-	const presetDirectory = join(root, "presets");
 	const contextDirectory = join(root, "context");
-	await Promise.all([mkdir(project), mkdir(presetDirectory), mkdir(contextDirectory)]);
-	return { project, presetDirectory, contextDirectory };
+	await Promise.all([mkdir(project), mkdir(contextDirectory)]);
+	return { project, contextDirectory };
 }
 
 function fileBlock(path: string, content: string) {
@@ -62,11 +61,11 @@ async function writeContextSource(
 }
 
 test("collectPreload validates configuration and applies merged selection rules", async (t) => {
-	const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
+	const { project, contextDirectory } = await createDynamicFixture(t);
 	const sourcePattern = join(project, "src", "included*.ts");
 	const configuration: Configuration = {
-		presets: ["common"],
 		includes: [
+			sourcePattern,
 			"local.txt",
 			"ignored/**/*",
 			"package-lock.json",
@@ -84,7 +83,6 @@ test("collectPreload validates configuration and applies merged selection rules"
 
 	await Promise.all([mkdir(join(project, "src")), mkdir(join(project, "ignored")), mkdir(join(project, "nested"))]);
 	await Promise.all([
-		writeFile(join(presetDirectory, "common.yml"), JSON.stringify({ includes: [sourcePattern] })),
 		writeFile(join(project, ".gitignore"), "ignored/\n"),
 		writeFile(join(project, "local.txt"), "local"),
 		writeFile(join(project, "src", "included.ts"), "included"),
@@ -96,13 +94,7 @@ test("collectPreload validates configuration and applies merged selection rules"
 		writeFile(join(project, "TREE.txt"), "stale tree"),
 	]);
 
-	const result = await collectPreload(
-		project,
-		AbortSignal.timeout(5_000),
-		presetDirectory,
-		contextDirectory,
-		configuration,
-	);
+	const result = await collectPreload(project, AbortSignal.timeout(5_000), configuration, contextDirectory);
 
 	assert.ok(result);
 	assert.equal(result.count, 2);
@@ -116,33 +108,27 @@ test("collectPreload validates configuration and applies merged selection rules"
 	);
 	assert.doesNotMatch(snapshot, /excluded|ignored|package lock|uv lock|stale preload/);
 	assert.equal(await readFile(join(project, "TREE.txt"), "utf8"), "stale tree");
-
-	await writeFile(join(presetDirectory, "invalid.yml"), JSON.stringify({ files: [42] }));
-	await assert.rejects(
-		collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, {
-			presets: ["invalid"],
-		}),
-		/Invalid pi-preload preset .*invalid\.yml/,
-	);
-
-	await writeFile(join(presetDirectory, "relative-includes.yml"), JSON.stringify({ includes: ["src/**/*.ts"] }));
-	const relativePresetResult = await collectPreload(
-		project,
-		AbortSignal.timeout(5_000),
-		presetDirectory,
-		contextDirectory,
-		{ presets: ["relative-includes"], excludes: ["src/excluded.ts"] },
-	);
-	assert.deepEqual(fileBlockPaths(relativePresetResult?.blocks ?? []), ["src/included.ts"]);
 });
 
-test("collectPreload merges signature presets and project references with full-mode precedence", async (t) => {
-	const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
+test("collectPreload uses package-owned empty defaults when pi-preload is missing", async (t) => {
+	const project = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
+	t.after(async () => rm(project, { recursive: true, force: true }));
+	await Promise.all([
+		writeFile(join(project, "AGENTS.yml"), JSON.stringify({ "pi-tree": { includes: ["selected.txt"] } })),
+		writeFile(join(project, "selected.txt"), "not preloaded"),
+	]);
+
+	const result = await collectPreload(project, AbortSignal.timeout(5_000));
+	assert.deepEqual(result, { blocks: [], count: 0, contextBytes: 1, sourceBytes: 0 });
+	assert.equal(await readFile(join(project, "PRELOAD.md"), "utf8"), "\n");
+});
+
+test("collectPreload merges signatures and project references with full-mode precedence", async (t) => {
+	const { project, contextDirectory } = await createDynamicFixture(t);
 	const child = join(project, "child");
 	const presetPath = join(project, "preset.ts");
 	await mkdir(child);
 	await Promise.all([
-		writeFile(join(presetDirectory, "signature-base.yml"), JSON.stringify({ signatures: [presetPath] })),
 		writeFile(join(child, "AGENTS.yml"), JSON.stringify({ "pi-preload": { signatures: ["child.ts"] } })),
 		writeFile(presetPath, 'export function preset() { return "preset implementation"; }\n'),
 		writeFile(join(child, "child.ts"), 'export function child() { return "child implementation"; }\n'),
@@ -150,12 +136,16 @@ test("collectPreload merges signature presets and project references with full-m
 		writeFile(join(project, "overlap.ts"), 'export function overlap() { return "full implementation"; }\n'),
 	]);
 
-	const result = await collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, {
-		presets: ["signature-base"],
-		extends: ["./child"],
-		signatures: ["own.ts", "overlap.ts"],
-		includes: ["overlap.ts"],
-	});
+	const result = await collectPreload(
+		project,
+		AbortSignal.timeout(5_000),
+		{
+			extends: ["./child"],
+			signatures: [presetPath, "own.ts", "overlap.ts"],
+			includes: ["overlap.ts"],
+		},
+		contextDirectory,
+	);
 
 	assert.ok(result);
 	assert.deepEqual(fileBlockPaths(result.blocks).sort(), ["child/child.ts", "overlap.ts", "own.ts", "preset.ts"]);
@@ -273,9 +263,7 @@ test("collectPreload uses GritQL to fold callable bodies across supported langua
 		),
 	]);
 
-	const result = await collectPreload(project, AbortSignal.timeout(5_000), undefined, undefined, {
-		signatures: ["src/**/*"],
-	});
+	const result = await collectPreload(project, AbortSignal.timeout(5_000), { signatures: ["src/**/*"] });
 	assert.ok(result);
 	const snapshot = await readFile(join(project, "PRELOAD.md"), "utf8");
 	for (const declaration of [
@@ -362,7 +350,7 @@ test("collectPreload rejects an unsupported signature language", async (t) => {
 	await writeFile(join(project, "unsupported.txt"), "unsupported signature source\n");
 
 	await assert.rejects(
-		collectPreload(project, AbortSignal.timeout(5_000), undefined, undefined, { signatures: ["unsupported.txt"] }),
+		collectPreload(project, AbortSignal.timeout(5_000), { signatures: ["unsupported.txt"] }),
 		/Signature folding does not support the file extension/,
 	);
 	await assert.rejects(readFile(join(project, "PRELOAD.md"), "utf8"), /ENOENT/);
@@ -381,9 +369,7 @@ test("collectPreload applies the total limit after signature folding", async (t)
 	await Promise.all(sources.map((source, index) => writeFile(join(sourceDirectory, `large-${index}.js`), source)));
 	assert.ok(sources.reduce((total, source) => total + Buffer.byteLength(source), 0) > 2 * 1024 * 1024);
 
-	const result = await collectPreload(project, AbortSignal.timeout(5_000), undefined, undefined, {
-		signatures: ["src/*.js"],
-	});
+	const result = await collectPreload(project, AbortSignal.timeout(5_000), { signatures: ["src/*.js"] });
 	assert.ok(result);
 	const snapshot = await readFile(join(project, "PRELOAD.md"), "utf8");
 	assert.ok(Buffer.byteLength(snapshot) < 2 * 1024 * 1024);
@@ -400,9 +386,7 @@ test("collectPreload handles selected media and writes canonical output", async 
 		await writeFile(join(project, "invalid.pdf"), Buffer.from("%PDF-1.7\n"));
 
 		await assert.rejects(
-			collectPreload(project, AbortSignal.timeout(5_000), undefined, undefined, {
-				includes: ["invalid.pdf"],
-			}),
+			collectPreload(project, AbortSignal.timeout(5_000), { includes: ["invalid.pdf"] }),
 			/explicitly selected binary file/,
 		);
 		await assert.rejects(readFile(join(project, "PRELOAD.md"), "utf8"), /ENOENT/);
@@ -417,9 +401,7 @@ test("collectPreload handles selected media and writes canonical output", async 
 		);
 		await writeFile(join(project, "image.png"), image);
 
-		const result = await collectPreload(project, AbortSignal.timeout(5_000), undefined, undefined, {
-			includes: ["image.png"],
-		});
+		const result = await collectPreload(project, AbortSignal.timeout(5_000), { includes: ["image.png"] });
 
 		assert.ok(result);
 		assert.deepEqual(
@@ -435,7 +417,7 @@ test("collectPreload handles selected media and writes canonical output", async 
 
 test("collectPreload resolves selected contexts and reports scoped failures", async (t) => {
 	await t.test("orders and deduplicates contexts before files", async (t) => {
-		const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
+		const { project, contextDirectory } = await createDynamicFixture(t);
 		await Promise.all([
 			writeContextSource(contextDirectory, "first", {
 				facts: 'export default async function () { return { name: "fixture", detail: "included" }; }\n',
@@ -447,16 +429,18 @@ test("collectPreload resolves selected contexts and reports scoped failures", as
 				facts: "export default async function () { return undefined; }\n",
 				template: "unused",
 			}),
-			writeFile(join(presetDirectory, "base.yml"), JSON.stringify({ contexts: ["first", "second"] })),
-			writeFile(join(presetDirectory, "extra.yml"), JSON.stringify({ contexts: ["second"] })),
 			writeFile(join(project, "selected.txt"), "selected"),
 		]);
 
-		const result = await collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, {
-			presets: ["base", "extra"],
-			contexts: ["first", "not-applicable"],
-			includes: ["selected.txt"],
-		});
+		const result = await collectPreload(
+			project,
+			AbortSignal.timeout(5_000),
+			{
+				contexts: ["first", "second", "second", "first", "not-applicable"],
+				includes: ["selected.txt"],
+			},
+			contextDirectory,
+		);
 
 		assert.ok(result);
 		assert.equal(result.count, 1);
@@ -477,7 +461,7 @@ test("collectPreload resolves selected contexts and reports scoped failures", as
 	});
 
 	await t.test("names execution and render failures", async (t) => {
-		const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
+		const { project, contextDirectory } = await createDynamicFixture(t);
 		await Promise.all([
 			writeContextSource(contextDirectory, "execution-error", {
 				facts: 'export default async function () { throw new Error("loader boom"); }\n',
@@ -489,15 +473,11 @@ test("collectPreload resolves selected contexts and reports scoped failures", as
 		]);
 
 		await assert.rejects(
-			collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, {
-				contexts: ["execution-error"],
-			}),
+			collectPreload(project, AbortSignal.timeout(5_000), { contexts: ["execution-error"] }, contextDirectory),
 			/Context source execution-error execution failed: loader boom/,
 		);
 		await assert.rejects(
-			collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, {
-				contexts: ["render-error"],
-			}),
+			collectPreload(project, AbortSignal.timeout(5_000), { contexts: ["render-error"] }, contextDirectory),
 			/Context source render-error render failed:/,
 		);
 	});
@@ -505,18 +485,18 @@ test("collectPreload resolves selected contexts and reports scoped failures", as
 
 test("collectPreload applies dynamic block and combined context limits", async (t) => {
 	await t.test("dynamic block limit", async (t) => {
-		const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
+		const { project, contextDirectory } = await createDynamicFixture(t);
 		const configuration: Configuration = { contexts: ["too-large"] };
 		await writeContextSource(contextDirectory, "too-large", { template: "x".repeat(256 * 1024) });
 
 		await assert.rejects(
-			collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, configuration),
+			collectPreload(project, AbortSignal.timeout(5_000), configuration, contextDirectory),
 			/block limit/,
 		);
 	});
 
 	await t.test("combined dynamic and file limit", async (t) => {
-		const { project, presetDirectory, contextDirectory } = await createDynamicFixture(t);
+		const { project, contextDirectory } = await createDynamicFixture(t);
 		const names = Array.from({ length: 9 }, (_, index) => `large-${index}`);
 		await Promise.all(
 			names.map((name) => writeContextSource(contextDirectory, name, { template: "x".repeat(255 * 1024) })),
@@ -525,7 +505,7 @@ test("collectPreload applies dynamic block and combined context limits", async (
 		await writeFile(join(project, "selected.txt"), "x".repeat(8 * 1024));
 
 		await assert.rejects(
-			collectPreload(project, AbortSignal.timeout(5_000), presetDirectory, contextDirectory, configuration),
+			collectPreload(project, AbortSignal.timeout(5_000), configuration, contextDirectory),
 			/Context with headings is over/,
 		);
 	});
@@ -563,10 +543,12 @@ test("collectPreload follows nested project references and rejects cycles", asyn
 			writeFile(join(inner, "docs", "guide.md"), "guide"),
 		]);
 
-		const result = await collectPreload(parent, AbortSignal.timeout(5_000), undefined, contextDirectory, {
-			extends: ["./vendor/middle"],
-			includes: ["parent.txt"],
-		});
+		const result = await collectPreload(
+			parent,
+			AbortSignal.timeout(5_000),
+			{ extends: ["./vendor/middle"], includes: ["parent.txt"] },
+			contextDirectory,
+		);
 
 		assert.ok(result);
 		assert.equal(result.count, 3);
@@ -594,7 +576,7 @@ test("collectPreload follows nested project references and rejects cycles", asyn
 		await writeFile(join(child, "AGENTS.yml"), JSON.stringify({ "pi-preload": { extends: [".."] } }));
 
 		await assert.rejects(
-			collectPreload(parent, AbortSignal.timeout(5_000), undefined, undefined, { extends: ["./child"] }),
+			collectPreload(parent, AbortSignal.timeout(5_000), { extends: ["./child"] }),
 			/Circular AGENTS\.yml extends/,
 		);
 	});
@@ -616,7 +598,7 @@ test("collectPreload applies the total byte limit across project scopes", async 
 	await Promise.all(writes);
 
 	await assert.rejects(
-		collectPreload(parent, AbortSignal.timeout(5_000), undefined, undefined, configuration),
+		collectPreload(parent, AbortSignal.timeout(5_000), configuration),
 		/Context with headings is over/,
 	);
 });

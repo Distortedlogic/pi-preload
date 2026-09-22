@@ -1,6 +1,6 @@
 {
 	"name": "pi-preload",
-	"version": "0.2.1",
+	"version": "0.2.2",
 	"private": true,
 	"description": "Preload pi chat context from AGENTS.yml file globs.",
 	"type": "module",
@@ -25,8 +25,7 @@
 		"LICENSE",
 		"context",
 		"grit",
-		"skills",
-		"presets"
+		"skills"
 	],
 	"pi": {
 		"extensions": [
@@ -52,6 +51,6 @@
 		"file-type": "22.1.0",
 		"nunjucks": "3.2.4",
 		"p-map": "7.0.7",
-		"pi-agents-yaml": "github:Distortedlogic/pi-agents-yaml#2d23b5261e519ef5a6811401ae2cbb1250eec7cc"
+		"pi-agents-yaml": "github:Distortedlogic/pi-agents-yaml#761369f8e34b460ed20deff4d733ef3963fef892"
 	}
 }
