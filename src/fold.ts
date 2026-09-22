@@ -1,12 +1,9 @@
 import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { resolve } from "node:path";
-import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { SignatureLanguage } from "./languages.ts";
 
-const agentDirectory = process.env.PI_CODING_AGENT_DIR ?? resolve(homedir(), CONFIG_DIR_NAME, "agent");
-
-export const GRIT_GLOBAL_DIRECTORY = resolve(agentDirectory, ".cache", "pi-preload", "grit");
+export const GRIT_GLOBAL_DIRECTORY = resolve(getAgentDir(), ".cache", "pi-preload", "grit");
 
 process.env.GRIT_GLOBAL_DIR = GRIT_GLOBAL_DIRECTORY;
 
