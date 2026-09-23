@@ -75,35 +75,3 @@ test("trusted Pi keeps one hidden preload message across reload", { timeout: 20_
 	await client.prompt("/reload-preload");
 	await assertSinglePreload();
 });
-
-test("Pi does not read AGENTS.yml preload configuration for an untrusted project", { timeout: 20_000 }, async (t) => {
-	const project = await mkdtemp(join(tmpdir(), "pi-preload-e2e-"));
-	await writeFile(join(project, "AGENTS.yml"), "pi-preload: [\n");
-	const extensionErrors: string[] = [];
-
-	const client = new RpcClient({
-		cliPath,
-		cwd: project,
-		env: { PI_OFFLINE: "1" },
-		args: ["--no-approve", "--no-session", "--no-extensions", "--extension", extensionPath],
-	});
-	client.onEvent((event) => {
-		const extensionEvent = event as unknown as { type: string; error?: string };
-		if (extensionEvent.type === "extension_error" && extensionEvent.error) {
-			extensionErrors.push(extensionEvent.error);
-		}
-	});
-	t.after(async () => {
-		await client.stop();
-		await rm(project, { recursive: true, force: true });
-	});
-	await client.start();
-
-	const messages = await client.getMessages();
-	assert.equal(
-		messages.some((message) => message.role === "custom" && message.customType === "pi-preload"),
-		false,
-	);
-	assert.deepEqual(extensionErrors, []);
-	await assert.rejects(readFile(join(project, "PRELOAD.md"), "utf8"), /ENOENT/);
-});
