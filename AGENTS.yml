@@ -2,6 +2,6 @@ pi-preload:
   presets:
     - "pi-extension"
   includes:
-    - "index.ts"
+    - "src/**/*.ts"
     - "test/**/*.ts"
     - "package.json"

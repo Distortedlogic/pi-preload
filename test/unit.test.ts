@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test, { type TestContext } from "node:test";
 import type { TextContent } from "@earendil-works/pi-ai";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import nunjucks from "nunjucks";
 import {
 	type PiPreloadConfiguration as Configuration,
@@ -12,6 +13,7 @@ import {
 import { Value } from "typebox/value";
 import { type DioxusFacts, parseDioxusMetadata } from "../context/dioxus/facts.ts";
 import { collectPreload } from "../src/index.ts";
+import { registerSignatureRead } from "../src/signature-read.ts";
 
 type PreloadResult = NonNullable<Awaited<ReturnType<typeof collectPreload>>>;
 
@@ -353,6 +355,61 @@ test("collectPreload uses GritQL to fold callable bodies across supported langua
 		assert.match(folded, declaration);
 	}
 	assert.equal(preloadedFile(snapshot, "src/fixture.py").split("...").length - 1, 3);
+});
+
+test("read_signatures folds the complete file before bounded output", async (t) => {
+	const project = await mkdtemp(join(tmpdir(), "pi-preload-signature-read-"));
+	t.after(async () => rm(project, { recursive: true, force: true }));
+	const payload = "x".repeat(80 * 1024);
+	await writeFile(
+		join(project, "api.ts"),
+		`export function first() { return "${payload}"; }\nexport function second() { return 2; }\n`,
+	);
+
+	let registeredTool: unknown;
+	registerSignatureRead({
+		registerTool: (tool: unknown) => {
+			registeredTool = tool;
+		},
+	} as unknown as ExtensionAPI);
+	const execute = (
+		registeredTool as {
+			execute?: (...args: unknown[]) => Promise<unknown>;
+		}
+	).execute;
+	if (!execute) assert.fail("read_signatures was not registered");
+
+	const firstResult = (await execute(
+		"signature-read-1",
+		{ path: "api.ts", limit: 1 },
+		AbortSignal.timeout(5_000),
+		undefined,
+		{ cwd: project },
+	)) as {
+		content: Array<{ text: string }>;
+		details: { nextOffset?: number; truncated: boolean };
+	};
+	const firstPage = firstResult.content[0]?.text ?? "";
+	assert.match(firstPage, /function first/);
+	assert.doesNotMatch(firstPage, /x{100}/);
+	assert.equal(firstResult.details.truncated, true);
+	assert.equal(firstResult.details.nextOffset, 2);
+
+	const secondResult = (await execute(
+		"signature-read-2",
+		{ path: "api.ts", offset: firstResult.details.nextOffset },
+		AbortSignal.timeout(5_000),
+		undefined,
+		{ cwd: project },
+	)) as { content: Array<{ text: string }> };
+	assert.match(secondResult.content[0]?.text ?? "", /function second/);
+	await assert.rejects(readFile(join(project, "PRELOAD.md"), "utf8"), /ENOENT/);
+	await assert.rejects(
+		execute("signature-read-unsupported", { path: "unsupported.txt" }, AbortSignal.timeout(5_000), undefined, {
+			cwd: project,
+		}),
+		/does not support.*Use read/,
+	);
 });
 
 test("collectPreload rejects an unsupported signature language", async (t) => {

@@ -13,6 +13,7 @@ import {
 } from "pi-agents-yaml";
 import { foldSignatures } from "./fold.ts";
 import { type SignatureLanguage, signatureLanguage } from "./languages.ts";
+import { registerSignatureRead } from "./signature-read.ts";
 
 const CUSTOM_TYPE = "pi-preload";
 const MAX_FILE_BYTES = 256 * 1024;
@@ -230,7 +231,7 @@ export async function collectPreload(
 			: [],
 	);
 	const foldedSignatures =
-		signatureSources.length > 0 ? await foldSignatures(signatureSources) : new Map<string, string>();
+		signatureSources.length > 0 ? await foldSignatures(signatureSources, signal) : new Map<string, string>();
 	const files = selectedSources.map((source) => {
 		if (source.blocks !== undefined) {
 			return {
@@ -290,6 +291,7 @@ export async function collectPreload(
 }
 
 export default function (pi: ExtensionAPI) {
+	registerSignatureRead(pi);
 	pi.on("session_start", async (_event, ctx) => {
 		const hasPreload = ctx.sessionManager
 			.buildContextEntries()

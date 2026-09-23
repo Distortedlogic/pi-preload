@@ -51,15 +51,20 @@ export interface SignatureFile {
 	registry: SignatureLanguage;
 }
 
-export async function foldSignatures(files: readonly SignatureFile[]): Promise<Map<string, string>> {
+export async function foldSignatures(
+	files: readonly SignatureFile[],
+	signal?: AbortSignal,
+): Promise<Map<string, string>> {
+	signal?.throwIfAborted();
 	const Builder = requireQueryBuilder();
 	const builders = new Map<SignatureLanguage["language"], InstanceType<QueryBuilderConstructor>>();
 	const folded = new Map<string, string>();
 
 	for (const file of files) {
+		signal?.throwIfAborted();
 		let builder = builders.get(file.registry.language);
 		if (!builder) {
-			const patternSource = await readFile(file.registry.patternFile, "utf8");
+			const patternSource = await readFile(file.registry.patternFile, { encoding: "utf8", signal });
 			try {
 				builder = new Builder(patternSource);
 			} catch (error) {
@@ -67,12 +72,15 @@ export async function foldSignatures(files: readonly SignatureFile[]): Promise<M
 			}
 			builders.set(file.registry.language, builder);
 		}
+		let content: string;
 		try {
 			const result = await builder.applyToFile({ path: file.path, content: file.content });
-			folded.set(file.path, result?.content ?? file.content);
+			content = result?.content ?? file.content;
 		} catch (error) {
 			throw new SignatureFileFoldError(file.path, error);
 		}
+		signal?.throwIfAborted();
+		folded.set(file.path, content);
 	}
 
 	return folded;
