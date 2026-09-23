@@ -9,7 +9,7 @@ import pMap from "p-map";
 import {
 	type PiPreloadConfiguration as Configuration,
 	resolveFileSelection,
-	resolvePiPreloadGraph,
+	resolvePiPreloadSources,
 } from "pi-agents-yaml";
 import { foldSignatures } from "./fold.ts";
 import { type SignatureLanguage, signatureLanguage } from "./languages.ts";
@@ -156,7 +156,7 @@ export async function collectPreload(
 	configuration?: Configuration,
 	contextDirectory = DEFAULT_CONTEXT_DIRECTORY,
 ) {
-	const graph = await resolvePiPreloadGraph({
+	const resolution = await resolvePiPreloadSources({
 		rootPath: cwd,
 		...(configuration ? { rootValue: configuration } : {}),
 		signal,
@@ -168,7 +168,7 @@ export async function collectPreload(
 	);
 	signal.throwIfAborted();
 
-	const candidates = await resolveFileSelection({ graph, signal });
+	const candidates = await resolveFileSelection({ resolution, signal });
 	const explicitFilePaths = new Set(
 		graph.nodes.flatMap((node) => node.section.value.includes.map((pattern) => resolve(node.rootPath, pattern))),
 	);
