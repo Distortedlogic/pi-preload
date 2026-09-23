@@ -97,16 +97,21 @@ test("collectPreload validates configuration and applies merged selection rules"
 	const result = await collectPreload(project, AbortSignal.timeout(5_000), configuration, contextDirectory);
 
 	assert.ok(result);
-	assert.equal(result.count, 2);
-	assert.deepEqual(fileBlockPaths(result.blocks), ["local.txt", "src/included.ts"]);
+	assert.equal(result.count, 3);
+	assert.deepEqual(fileBlockPaths(result.blocks), ["local.txt", "ignored/secret.txt", "src/included.ts"]);
 	const snapshot = await readFile(join(project, "PRELOAD.md"), "utf8");
+	assert.ok(snapshot.includes(fileBlock("ignored/secret.txt", "ignored")));
 	assert.ok(snapshot.includes(fileBlock("local.txt", "local")));
 	assert.ok(snapshot.includes(fileBlock("src/included.ts", "included")));
 	assert.ok(
 		snapshot.indexOf('===== BEGIN FILE "local.txt" =====') <
+			snapshot.indexOf('===== BEGIN FILE "ignored/secret.txt" ====='),
+	);
+	assert.ok(
+		snapshot.indexOf('===== BEGIN FILE "ignored/secret.txt" =====') <
 			snapshot.indexOf('===== BEGIN FILE "src/included.ts" ====='),
 	);
-	assert.doesNotMatch(snapshot, /excluded|ignored|package lock|uv lock|stale preload/);
+	assert.doesNotMatch(snapshot, /excluded|package lock|uv lock|stale preload/);
 	assert.equal(await readFile(join(project, "TREE.txt"), "utf8"), "stale tree");
 });
 
