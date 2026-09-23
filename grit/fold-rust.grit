@@ -1,5 +1,5 @@
 language rust
 
 function_item(body=$b) where {
-	$b => `{ /* … */ }`
+	$b => `{}`
 }

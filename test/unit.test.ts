@@ -342,11 +342,17 @@ test("collectPreload uses GritQL to fold callable bodies across supported langua
 	] as const) {
 		assert.ok((await readFile(join(sourceDirectory, fileName), "utf8")).includes(implementation));
 	}
-	assert.equal(preloadedFile(snapshot, "src/fixture.js").split("/* … */").length - 1, 4);
-	assert.equal(preloadedFile(snapshot, "src/fixture.ts").split("/* … */").length - 1, 4);
+	for (const [path, declaration] of [
+		["src/fixture.js", /function javascriptOuter\(\)[^{]*\{\s*\}/],
+		["src/fixture.ts", /function typescriptOuter\(\)[^{]*\{\s*\}/],
+		["src/fixture.rs", /fn rust_outer\(\)[^{]*\{\s*\}/],
+		["src/fixture.go", /func goOuter\(\)[^{]*\{\s*\}/],
+	] as const) {
+		const folded = preloadedFile(snapshot, path);
+		assert.doesNotMatch(folded, /\/\* … \*\//);
+		assert.match(folded, declaration);
+	}
 	assert.equal(preloadedFile(snapshot, "src/fixture.py").split("...").length - 1, 3);
-	assert.equal(preloadedFile(snapshot, "src/fixture.rs").split("/* … */").length - 1, 3);
-	assert.equal(preloadedFile(snapshot, "src/fixture.go").split("/* … */").length - 1, 3);
 });
 
 test("collectPreload rejects an unsupported signature language", async (t) => {

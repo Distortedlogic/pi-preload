@@ -5,5 +5,5 @@ or {
 	method_definition(body=$b),
 	arrow_function(body=$b)
 } where {
-	$b => `{ /* … */ }`
+	$b => `{}`
 }
