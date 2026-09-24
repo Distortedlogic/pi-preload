@@ -1,8 +1,0 @@
-language go
-
-or {
-	function_declaration(body=$b),
-	method_declaration(body=$b)
-} where {
-	$b => `{}`
-}

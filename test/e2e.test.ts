@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -14,13 +14,11 @@ function agentsConfiguration(configuration: unknown) {
 	return JSON.stringify({ "other-extension": { enabled: true }, "pi-preload": configuration });
 }
 
-test("trusted Pi keeps one hidden preload message across reload", { timeout: 20_000 }, async (t) => {
+test("trusted Pi keeps one hidden generated-context message across reload", { timeout: 20_000 }, async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-preload-e2e-"));
 	const reloadExtensionPath = join(project, "reload-extension.ts");
-	await mkdir(join(project, "nested"));
 	await Promise.all([
-		writeFile(join(project, "AGENTS.yml"), agentsConfiguration({ includes: ["nested/**/*"] })),
-		writeFile(join(project, "nested/context.txt"), "e2e preloaded text"),
+		writeFile(join(project, "AGENTS.yml"), agentsConfiguration({})),
 		writeFile(
 			reloadExtensionPath,
 			[
@@ -67,8 +65,8 @@ test("trusted Pi keeps one hidden preload message across reload", { timeout: 20_
 		assert.ok(preload);
 		if (preload.role !== "custom") assert.fail("Expected a custom preload message");
 		assert.equal(preload.display, false);
-		const snapshot = await readFile(join(project, "PRELOAD.md"), "utf8");
-		assert.ok(snapshot.includes("e2e preloaded text"));
+		assert.deepEqual(preload.content, []);
+		assert.equal(await readFile(join(project, "PRELOAD.md"), "utf8"), "\n");
 	};
 
 	await assertSinglePreload();

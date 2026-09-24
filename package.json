@@ -2,7 +2,7 @@
 	"name": "pi-preload",
 	"version": "0.2.5",
 	"private": true,
-	"description": "Preload pi chat context from AGENTS.yml file globs.",
+	"description": "Preload generated Pi chat context from AGENTS.yml.",
 	"type": "module",
 	"keywords": [
 		"pi-package"
@@ -24,7 +24,6 @@
 		"README.md",
 		"LICENSE",
 		"context",
-		"grit",
 		"skills"
 	],
 	"pi": {
@@ -49,10 +48,7 @@
 		"typescript": "7.0.2"
 	},
 	"dependencies": {
-		"@getgrit/gritql": "0.0.3",
-		"file-type": "22.1.0",
 		"nunjucks": "3.2.4",
-		"p-map": "7.0.7",
-		"pi-agents-yaml": "github:Distortedlogic/pi-agents-yaml#5711fad77bf1c950612ba38e76a965230f498493"
+		"pi-agents-yaml": "github:Distortedlogic/pi-agents-yaml#4138b0e65da8b10db5d2403977c9b7a894d1db02"
 	}
 }
