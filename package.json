@@ -51,7 +51,7 @@
 		"file-type": "22.1.0",
 		"nunjucks": "3.2.4",
 		"p-map": "7.0.7",
-		"pi-agents-yaml": "github:Distortedlogic/pi-agents-yaml#290a00db3133c269aa062a0e33285624312a1629",
+		"pi-agents-yaml": "github:Distortedlogic/pi-agents-yaml#4186ca521725ff8db4ca5abb083dd900ee222bba",
 		"pi-read-signatures": "github:Distortedlogic/pi-read-signatures#3b36ffe75011d11d9512bf614865857e26ff329e"
 	}
 }
