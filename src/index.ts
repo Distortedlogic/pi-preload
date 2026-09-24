@@ -162,7 +162,9 @@ export async function collectPreload(
 		signal,
 	});
 	const contextBlocks = await loadContextSources(
-		graph.nodes.flatMap((node) => node.section.value.contexts.map((name) => ({ projectRoot: node.rootPath, name }))),
+		resolution.sources.flatMap((source) =>
+			source.section.value.contexts.map((name) => ({ projectRoot: source.rootPath, name })),
+		),
 		contextDirectory,
 		signal,
 	);
@@ -170,7 +172,9 @@ export async function collectPreload(
 
 	const candidates = await resolveFileSelection({ resolution, signal });
 	const explicitFilePaths = new Set(
-		graph.nodes.flatMap((node) => node.section.value.includes.map((pattern) => resolve(node.rootPath, pattern))),
+		resolution.sources.flatMap((source) =>
+			source.section.value.includes.map((pattern) => resolve(source.rootPath, pattern)),
+		),
 	);
 	const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 	const selectedFiles = await pMap(
