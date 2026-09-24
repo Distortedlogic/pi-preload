@@ -15,6 +15,13 @@ function textBlocks(blocks: PreloadResult["blocks"]): TextContent[] {
 	return blocks.filter((block): block is TextContent => block.type === "text");
 }
 
+function fileBlockPaths(blocks: PreloadResult["blocks"]): string[] {
+	return textBlocks(blocks).flatMap((block) => {
+		const match = /^===== BEGIN FILE (.+) =====/.exec(block.text);
+		return match ? [JSON.parse(match[1]) as string] : [];
+	});
+}
+
 async function createDynamicFixture(t: TestContext) {
 	const root = await mkdtemp(join(tmpdir(), "pi-preload-unit-"));
 	t.after(async () => rm(root, { recursive: true, force: true }));
@@ -46,8 +53,37 @@ test("collectPreload uses package-owned empty defaults when pi-preload is missin
 	]);
 
 	const result = await collectPreload(project, AbortSignal.timeout(5_000));
-	assert.deepEqual(result, { blocks: [], count: 0, contextBytes: 1 });
+	assert.deepEqual(result, { blocks: [], count: 0, contextBytes: 1, sourceBytes: 0 });
 	assert.equal(await readFile(join(project, "PRELOAD.md"), "utf8"), "\n");
+});
+
+test("collectPreload selects files only through presets", async (t) => {
+	const { project, contextDirectory } = await createDynamicFixture(t);
+	const presetDirectory = join(project, "presets");
+	await mkdir(presetDirectory);
+	await Promise.all([
+		writeFile(join(project, "AGENTS.yml"), "pi-preload:\n  presets: [files]\n"),
+		writeFile(
+			join(presetDirectory, "files.yml"),
+			"includes: [full.ts]\nsignatures: ['*.ts']\nexcludes: [excluded.ts]\n",
+		),
+		writeFile(join(project, "full.ts"), 'export function full() { return "FULL_IMPLEMENTATION"; }\n'),
+		writeFile(join(project, "signature.ts"), 'export function signature() { return "SIGNATURE_IMPLEMENTATION"; }\n'),
+		writeFile(join(project, "excluded.ts"), 'export function excluded() { return "EXCLUDED"; }\n'),
+	]);
+
+	const result = await collectPreload(
+		project,
+		AbortSignal.timeout(5_000),
+		undefined,
+		contextDirectory,
+		presetDirectory,
+	);
+	assert.equal(result.count, 2);
+	assert.deepEqual(fileBlockPaths(result.blocks), ["full.ts", "signature.ts"]);
+	const snapshot = await readFile(join(project, "PRELOAD.md"), "utf8");
+	assert.match(snapshot, /FULL_IMPLEMENTATION/);
+	assert.doesNotMatch(snapshot, /SIGNATURE_IMPLEMENTATION|EXCLUDED/);
 });
 
 test("collectPreload resolves selected contexts and reports scoped failures", async (t) => {
@@ -73,7 +109,7 @@ test("collectPreload resolves selected contexts and reports scoped failures", as
 		);
 
 		assert.ok(result);
-		assert.equal(result.count, 2);
+		assert.equal(result.count, 0);
 		assert.equal(result.contextBytes, Buffer.byteLength(await readFile(join(project, "PRELOAD.md"), "utf8")));
 		assert.deepEqual(
 			textBlocks(result.blocks).map((block) => block.text),
@@ -129,7 +165,7 @@ test("collectPreload applies dynamic block and combined context limits", async (
 
 		await assert.rejects(
 			collectPreload(project, AbortSignal.timeout(5_000), configuration, contextDirectory),
-			/Generated context is over/,
+			/Context with headings is over/,
 		);
 	});
 });
@@ -166,7 +202,7 @@ test("collectPreload follows nested project references", async (t) => {
 		contextDirectory,
 	);
 
-	assert.equal(result.count, 3);
+	assert.equal(result.count, 0);
 	assert.deepEqual(
 		textBlocks(result.blocks).map((block) => block.text),
 		[inner, middle, parent].map((projectRoot) => `Context: probe\n\nRoot: ${projectRoot}\n`),

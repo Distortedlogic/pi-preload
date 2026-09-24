@@ -2,7 +2,7 @@
 	"name": "pi-preload",
 	"version": "0.2.5",
 	"private": true,
-	"description": "Preload generated Pi chat context from AGENTS.yml.",
+	"description": "Preload generated and preset-selected Pi chat context from AGENTS.yml.",
 	"type": "module",
 	"keywords": [
 		"pi-package"
@@ -48,7 +48,10 @@
 		"typescript": "7.0.2"
 	},
 	"dependencies": {
+		"file-type": "22.1.0",
 		"nunjucks": "3.2.4",
-		"pi-agents-yaml": "github:Distortedlogic/pi-agents-yaml#4138b0e65da8b10db5d2403977c9b7a894d1db02"
+		"p-map": "7.0.7",
+		"pi-agents-yaml": "github:Distortedlogic/pi-agents-yaml#0f45dc756c0597fe90ae5deb45a1077d46bc667b",
+		"pi-read-signatures": "github:Distortedlogic/pi-read-signatures#3b36ffe75011d11d9512bf614865857e26ff329e"
 	}
 }
