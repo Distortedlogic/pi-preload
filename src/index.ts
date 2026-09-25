@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -7,6 +8,7 @@ import { fileTypeFromBuffer } from "file-type";
 import nunjucks from "nunjucks";
 import pMap from "p-map";
 import {
+	AGENTS_FILE_NAME,
 	type PiPreloadConfiguration as Configuration,
 	resolvePiPreloadSources,
 	resolvePreloadFileSelection,
@@ -297,10 +299,11 @@ export async function collectPreload(
 
 export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
+		if (!ctx.isProjectTrusted() || !existsSync(resolve(ctx.cwd, AGENTS_FILE_NAME))) return;
 		const hasPreload = ctx.sessionManager
 			.buildContextEntries()
 			.some((entry) => entry.type === "custom_message" && entry.customType === CUSTOM_TYPE);
-		if (!ctx.isProjectTrusted() || hasPreload) return;
+		if (hasPreload) return;
 
 		ctx.ui.setStatus(CUSTOM_TYPE, "Preloading context...");
 
